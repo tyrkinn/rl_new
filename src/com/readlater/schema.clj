@@ -1,0 +1,68 @@
+(ns com.readlater.schema)
+
+(def schema
+  {:article/id :uuid
+   :article
+   [:map {:closed true}
+    [:xt/id                                          :article/id]
+    [:article/url                                    :string]
+    [:article/url-normalized                         :string]
+    [:article/source        [:enum :service :cli :bookmarklet]]
+    [:article/status        [:enum :queued :enriching :ready :read
+                             :archived :failed :paywall :notfound
+                             :login-required :deleted]]
+    [:article/title         {:optional true} [:maybe :string]]
+    [:article/byline        {:optional true} [:maybe :string]]
+    [:article/lang          {:optional true} [:maybe :string]]
+    [:article/published-at  {:optional true} [:maybe inst?]]
+    [:article/tldr          {:optional true} [:maybe [:vector :string]]]
+    [:article/tags          {:optional true} [:maybe [:vector :string]]]
+    [:article/topic         {:optional true} [:maybe :string]]
+    [:article/why-interesting {:optional true} [:maybe :string]]
+    [:article/reading-time-min {:optional true} [:maybe :int]]
+    [:article/quality-score    {:optional true} [:maybe :int]]
+    [:article/keywords      {:optional true} [:maybe [:vector :string]]]
+    [:article/synonyms      {:optional true} [:maybe [:vector :string]]]
+    [:article/comments      {:optional true} [:maybe [:vector [:map [:text :string] [:created-at inst?]]]]]
+    [:article/added-at      inst?]
+    [:article/read-at       {:optional true} [:maybe inst?]]
+    [:article/archived-at   {:optional true} [:maybe inst?]]
+    [:article/deleted-at    {:optional true} [:maybe inst?]]
+    [:article/error         {:optional true} [:maybe :string]]
+    [:article/error-reason  {:optional true} [:maybe [:enum :paywall :notfound :login-required :other]]]
+    [:article/retry-count   :int]
+    [:article/next-attempt-at {:optional true} [:maybe inst?]]]
+
+   :rec/id :uuid
+   :rec
+   [:map {:closed true}
+    [:xt/id               :rec/id]
+    [:rec/date            :string]
+    [:rec/generated-at    inst?]
+    [:rec/prompt-snapshot :string]
+    [:rec/collections     [:vector :any]]]
+
+   :syn/id :uuid
+   :syn
+   [:map {:closed true}
+    [:xt/id                   :syn/id]
+    [:syn/generated-at        inst?]
+    [:syn/prompt-snapshot     :string]
+    [:syn/dictionary          [:map-of :string [:vector :string]]]
+    [:syn/articles-considered :int]
+    [:syn/dictionary-size     :int]]
+
+   :settings/id :keyword
+   :settings
+   [:map {:closed true}
+    [:xt/id                                    :settings/id]
+    [:settings/enrich-prompt       {:optional true} :string]
+    [:settings/recommend-prompt    {:optional true} :string]
+    [:settings/synonyms-prompt     {:optional true} :string]
+    [:settings/interests           {:optional true} :string]
+    [:settings/recommend-cron-time {:optional true} :string]
+    [:settings/synonyms-cron       {:optional true} :string]
+    [:settings/claude-bin          {:optional true} :string]
+    [:settings/meilisearch-url     {:optional true} :string]]})
+
+(def module {:schema schema})

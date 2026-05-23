@@ -1,0 +1,25 @@
+/.cpcache
+/.nrepl-port
+/bin
+/config.edn
+/config.sh
+/config.env
+/node_modules
+/secrets.env
+/storage/
+/data.ms/
+/dumps/
+/tailwindcss
+/target
+.calva/
+.clj-kondo/
+.lsp/
+.portal/
+.shadow-cljs/
+
+# Claude Code
+.claude/
+
+# Markdown files
+*.md
+!README.md
