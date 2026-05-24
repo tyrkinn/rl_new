@@ -25,6 +25,13 @@
     [:p {:class "text-sm text-stone-800 leading-relaxed whitespace-pre-wrap"} text]]
    [:span {:class "text-xs text-stone-400 pl-1"} (fmt-comment-time created-at)]])
 
+(defn- copy-btn [url]
+  [:button {:class   "btn btn-xs btn-ghost text-stone-400 hover:text-stone-600 px-1.5 shrink-0"
+            :title   "Copy link"
+            :data-url url
+            :onclick "navigator.clipboard.writeText(this.dataset.url);showToast({type:'success',title:'Link copied'})"}
+   [:i {:data-lucide "link" :class "icon-sm"}]])
+
 (defn- status-badge [status]
   (case status
     :queued    [:span {:class "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"}
@@ -36,7 +43,7 @@
     nil))
 
 (defn article-card [{:keys [xt/id article/title article/url article/status
-                             article/tldr article/tags article/reading-time-min]}]
+                            article/tldr article/tags article/reading-time-min]}]
   (let [pending?      (#{:queued :enriching} status)
         display-title (or title url)]
     [:div {:class "card-art p-5"}
@@ -50,6 +57,7 @@
          [:p {:class "text-xs text-stone-400 mt-0.5 truncate"} url])]
       [:div {:class "flex items-center gap-1.5 shrink-0"}
        (status-badge status)
+       (copy-btn url)
        [:a {:href url :target "_blank" :rel "noopener noreferrer"
             :class "btn btn-xs btn-ghost text-stone-400 hover:text-stone-600 px-1.5"
             :title "Open original"}
@@ -83,8 +91,8 @@
 ;; Video card
 
 (defn video-card [{:keys [xt/id article/title article/url article/status
-                           article/tldr article/tags article/channel
-                           article/platform article/duration-min]}]
+                          article/tldr article/tags article/channel
+                          article/platform article/duration-min]}]
   (let [pending? (#{:queued :enriching} status)]
     [:div {:class "card-art overflow-hidden"}
      [:div {:class "flex items-center gap-2 px-5 pt-4 pb-3 border-b border-stone-100"}
@@ -107,6 +115,7 @@
           [:p {:class "text-xs text-stone-400 mt-0.5 truncate"} url])]
        [:div {:class "flex items-center gap-1.5 shrink-0"}
         (status-badge status)
+        (copy-btn url)
         [:a {:href url :target "_blank" :rel "noopener noreferrer"
              :class "btn btn-xs btn-ghost text-stone-400 hover:text-stone-600 px-1.5"
              :title "Watch"}
@@ -122,7 +131,7 @@
 ;; Bookmark card
 
 (defn bookmark-card [{:keys [xt/id article/title article/url article/status
-                              article/why-interesting article/tags article/category article/platform]}]
+                             article/why-interesting article/tags article/category article/platform]}]
   (let [domain (try (-> (java.net.URI. url) .getHost (str/replace #"^www\." ""))
                     (catch Exception _ url))]
     [:div {:class "card-art p-5"}
@@ -139,10 +148,12 @@
             :class "font-serif text-lg font-medium leading-snug hover:underline"}
         (or title url)]
        [:p {:class "text-xs text-stone-400 mt-0.5"} domain]]
-      [:a {:href url :target "_blank" :rel "noopener noreferrer"
-           :class "btn btn-xs btn-ghost text-stone-400 hover:text-stone-600 px-1.5 shrink-0"
-           :title "Open"}
-       [:i {:data-lucide "external-link" :class "icon-sm"}]]]
+      [:div {:class "flex items-center gap-0.5 shrink-0"}
+       (copy-btn url)
+       [:a {:href url :target "_blank" :rel "noopener noreferrer"
+            :class "btn btn-xs btn-ghost text-stone-400 hover:text-stone-600 px-1.5"
+            :title "Open"}
+        [:i {:data-lucide "external-link" :class "icon-sm"}]]]]
      (when why-interesting
        [:p {:class "text-sm text-stone-600 mt-2 line-clamp-2"} why-interesting])
      (when (seq tags)
@@ -154,7 +165,7 @@
 ;; Thread card
 
 (defn thread-card [{:keys [xt/id article/title article/url article/status
-                            article/tldr article/tags article/platform article/author-handle]}]
+                           article/tldr article/tags article/platform article/author-handle]}]
   [:div {:class "card-art p-5"}
    [:div {:class "flex items-start justify-between gap-3 mb-3"}
     [:div {:class "flex items-center gap-2 flex-wrap"}
@@ -162,9 +173,11 @@
       [:i {:data-lucide "message-square" :class "text-purple-500" :style {:width "12px" :height "12px"}}]]
      (when platform [:span {:class "chip chip-mono text-[10px]"} platform])
      (when author-handle [:span {:class "text-xs text-stone-500 font-medium"} author-handle])]
-    [:a {:href url :target "_blank" :rel "noopener noreferrer"
-         :class "btn btn-xs btn-ghost text-stone-400 hover:text-stone-600 px-1.5 shrink-0"}
-     [:i {:data-lucide "external-link" :class "icon-sm"}]]]
+    [:div {:class "flex items-center gap-0.5 shrink-0"}
+     (copy-btn url)
+     [:a {:href url :target "_blank" :rel "noopener noreferrer"
+          :class "btn btn-xs btn-ghost text-stone-400 hover:text-stone-600 px-1.5"}
+      [:i {:data-lucide "external-link" :class "icon-sm"}]]]]
    [:a {:href  (str "/article/" id)
         :class "font-serif text-[17px] font-medium leading-snug hover:underline text-stone-800"}
     (or title url)]
@@ -182,8 +195,8 @@
 ;; Paper card
 
 (defn paper-card [{:keys [xt/id article/title article/url article/status
-                           article/why-interesting article/tags article/field
-                           article/paper-authors article/key-findings]}]
+                          article/why-interesting article/tags article/field
+                          article/paper-authors article/key-findings]}]
   [:div {:class "card-art p-5"}
    [:div {:class "flex items-start justify-between gap-3"}
     [:div {:class "flex-1 min-w-0"}
@@ -196,9 +209,11 @@
       (or title url)]
      (when (seq paper-authors)
        [:p {:class "text-xs text-stone-500 mt-0.5"} (str/join ", " (take 3 paper-authors))])]
-    [:a {:href url :target "_blank" :rel "noopener noreferrer"
-         :class "btn btn-xs btn-ghost text-stone-400 hover:text-stone-600 px-1.5 shrink-0"}
-     [:i {:data-lucide "external-link" :class "icon-sm"}]]]
+    [:div {:class "flex items-center gap-0.5 shrink-0"}
+     (copy-btn url)
+     [:a {:href url :target "_blank" :rel "noopener noreferrer"
+          :class "btn btn-xs btn-ghost text-stone-400 hover:text-stone-600 px-1.5"}
+      [:i {:data-lucide "external-link" :class "icon-sm"}]]]]
    (when why-interesting
      [:p {:class "text-sm text-stone-600 mt-2 line-clamp-2"} why-interesting])
    (when (seq key-findings)
@@ -236,8 +251,9 @@
                         "bg-stone-300"))}])
 
 (defn week-row [{:keys [xt/id article/title article/url article/status
-                        article/tags article/reading-time-min]}]
-  (let [row-id (str "wr-" id)]
+                        article/tags article/reading-time-min article/kind]}]
+  (let [row-id   (str "wr-" id)
+        article? (contains? #{nil :article} kind)]
     [:div {:id    row-id
            :class "group flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-stone-50 -mx-3 transition-colors"}
      (week-status-dot status)
@@ -250,7 +266,7 @@
           [:span {:class "chip"} tag])])
      (when reading-time-min
        [:span {:class "chip chip-mono shrink-0"} (str reading-time-min "m")])
-     (when (not= status :read)
+     (when (and article? (not= status :read))
        [:button {:class               "opacity-0 group-hover:opacity-100 btn btn-xs btn-ghost text-emerald-600 gap-1 shrink-0 transition-opacity"
                  :title               "Mark as read"
                  :hx-post             (str "/api/articles/" id "/read")
@@ -260,48 +276,105 @@
                                             "e.style.opacity='0';"
                                             "setTimeout(function(){e.remove()},260)")}
         [:i {:data-lucide "check" :class "icon-sm"}]])
+     [:button {:class    "opacity-0 group-hover:opacity-100 btn btn-xs btn-ghost text-stone-400 px-1 shrink-0 transition-opacity"
+               :title    "Copy link"
+               :data-url url
+               :onclick  "navigator.clipboard.writeText(this.dataset.url);showToast({type:'success',title:'Link copied'})"}
+      [:i {:data-lucide "link" :class "icon-sm"}]]
      [:a {:href  url :target "_blank" :rel "noopener noreferrer"
           :title "Open original"
           :class "opacity-0 group-hover:opacity-100 btn btn-xs btn-ghost text-stone-400 px-1 shrink-0 transition-opacity"}
       [:i {:data-lucide "external-link" :class "icon-sm"}]]]))
 
 ;; ---------------------------------------------------------------------------
-;; External discovery components (HN / Lobsters — not saved to library)
+;; Discover cards — editorial bento grid style
 
-(defn external-item-row [{:keys [url title blurb]}]
-  [:div {:class "flex items-start gap-3 py-2.5"}
-   [:div {:class "flex-1 min-w-0"}
-    [:a {:href   url
-         :target "_blank"
-         :rel    "noopener noreferrer"
-         :class  "text-[13px] font-medium leading-snug hover:underline text-stone-800 line-clamp-2"}
-     title]
-    (when (seq blurb)
-      [:p {:class "text-xs text-stone-400 italic mt-0.5 line-clamp-1"} blurb])]
-   [:div {:class "shrink-0"}
-    [:button {:class               "btn btn-xs btn-ghost text-stone-400 hover:text-emerald-600 px-1.5"
-              :title               "Add to inbox"
-              :hx-post             "/api/add"
-              :hx-vals             (str "{\"url\":\"" url "\",\"kind\":\"article\"}")
-              :hx-swap             "none"
-              :hx-on--after-request "if(event.detail.successful){this.outerHTML='<span class=\"text-emerald-500 text-xs font-medium px-1.5\">✓</span>'}"}
-     [:i {:data-lucide "plus" :class "icon-sm"}]]]])
+(def ^:private disc-sources
+  {"HackerNews" {:color "#E8601C" :label "Hacker News"}
+   "Lobsters"   {:color "#C0392B" :label "Lobsters"}
+   "Dev.to"     {:color "#3B49DF" :label "Dev.to"}
+   "Reddit"     {:color "#FF4500" :label "Reddit"}
+   "GitHub"     {:color "#24292F" :label "GitHub"}
+   "YouTube"    {:color "#FF0000" :label "YouTube"}})
 
-(defn- source-badge [source-label]
-  (case source-label
-    "HackerNews" [:span {:class "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-orange-50 text-orange-600 border border-orange-200"}
-                  "HN"]
-    "Lobsters"   [:span {:class "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-red-50 text-red-700 border border-red-200"}
-                  "Lobsters"]
-    [:span {:class "chip chip-mono text-[10px]"} source-label]))
+(defn- disc-source-header [source-label vibe count-label]
+  (let [{:keys [color label]} (get disc-sources source-label {:color "#8B5A3C" :label source-label})]
+    [:div {:class "disc-header flex items-center justify-between px-4 py-2.5 border-b border-stone-100/80"
+           :style {:background (str "color-mix(in srgb," color " 8%, transparent)")}}
+     [:div {:class "flex items-center gap-2"}
+      [:span {:class "w-2 h-2 rounded-full flex-shrink-0" :style {:background color}}]
+      [:span {:class "text-[10px] font-bold uppercase tracking-[0.1em] text-stone-600"} label]
+      (when (seq vibe)
+        [:span {:class "text-[10px] text-stone-400 font-medium"} (str "· " vibe)])]
+     (when count-label
+       [:span {:class "text-[10px] font-mono text-stone-400"} count-label])]))
+
+(defn- disc-add-btn [url kind]
+  [:button {:class               "disc-add opacity-0 inline-flex items-center justify-center flex-shrink-0 w-5 h-5 rounded-full border border-stone-200 bg-white text-stone-400 hover:text-emerald-600 hover:border-emerald-300 hover:bg-emerald-50 transition-all"
+            :title               "Add to inbox"
+            :hx-post             "/api/add"
+            :hx-vals             (str "{\"url\":\"" url "\",\"kind\":\"" kind "\"}")
+            :hx-swap             "none"
+            :hx-on--after-request "if(event.detail.successful){this.outerHTML='<span class=\"inline-flex items-center justify-center flex-shrink-0 w-5 h-5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-500\" style=\"font-size:9px\">✓</span>'}"}
+   [:i {:data-lucide "plus" :style {:width "10px" :height "10px"}}]])
 
 (defn external-collection-card [{:keys [theme vibe items source-label]}]
-  [:div {:class "card-art p-6 flex flex-col w-72 md:w-80 shrink-0 snap-start"}
-   [:div {:class "flex items-center justify-between mb-3"}
-    (source-badge source-label)
-    (when (seq vibe)
-      [:span {:class "chip self-start"} vibe])]
-   [:h2 {:class "font-serif text-xl font-semibold leading-snug mb-3"} (or theme "Top Stories")]
-   [:div {:class "mt-1 pt-3 border-t border-stone-100 divide-y divide-stone-100"}
-    (for [item items]
-      (external-item-row item))]])
+  (let [{:keys [color]} (get disc-sources source-label {:color "#8B5A3C"})]
+    [:div {:class "disc-card card-art overflow-hidden flex flex-col"
+           :style {:border-left (str "3px solid " color)}}
+     (disc-source-header source-label vibe (str (count items) " stories"))
+     (when (seq theme)
+       [:div {:class "px-4 pt-3 pb-1"}
+        [:h3 {:class "font-serif text-[15px] font-semibold leading-snug text-stone-900 line-clamp-2"} theme]])
+     [:div {:class "flex flex-col divide-y divide-stone-100/70"}
+      (for [{:keys [url title blurb]} (take 6 items)]
+        [:div {:class "group flex items-start gap-3 px-4 py-2.5 hover:bg-stone-50/60 transition-colors"}
+         [:div {:class "flex-1 min-w-0"}
+          [:a {:href url :target "_blank" :rel "noopener noreferrer"
+               :class "text-[13px] font-medium leading-snug hover:underline text-stone-800 line-clamp-2"}
+           title]
+          (when (seq blurb)
+            [:p {:class "text-[11px] text-stone-400 mt-0.5 line-clamp-1 italic"} blurb])]
+         (disc-add-btn url "article")])]]))
+
+(defn github-trending-card [{:keys [repos]}]
+  (let [{:keys [color]} (get disc-sources "GitHub")]
+    [:div {:class "disc-card card-art overflow-hidden flex flex-col"
+           :style {:border-left (str "3px solid " color)}}
+     (disc-source-header "GitHub" "trending" (str (count repos) " repos"))
+     [:div {:class "flex flex-col divide-y divide-stone-100/70"}
+      (for [{:keys [name url description stars language]} (take 6 repos)]
+        [:div {:class "group flex items-start gap-3 px-4 py-2.5 hover:bg-stone-50/60 transition-colors"}
+         [:div {:class "flex-1 min-w-0"}
+          [:a {:href url :target "_blank" :rel "noopener noreferrer"
+               :class "text-[13px] font-semibold leading-snug hover:underline text-stone-800 line-clamp-1 font-mono"}
+           name]
+          [:div {:class "flex items-center gap-2.5 mt-0.5"}
+           (when (seq language)
+             [:span {:class "text-[11px] text-stone-500 font-mono"} language])
+           (when (pos? (or stars 0))
+             [:span {:class "inline-flex items-center gap-0.5 text-[11px] text-stone-400"}
+              [:i {:data-lucide "star" :style {:width "10px" :height "10px"}}]
+              (if (>= stars 1000) (str (quot stars 1000) "k") (str stars))])]
+          (when (seq description)
+            [:p {:class "text-[11px] text-stone-400 mt-0.5 line-clamp-1"} description])]
+         (disc-add-btn url "bookmark")])]]))
+
+(defn video-recs-card [{:keys [videos]}]
+  (let [{:keys [color]} (get disc-sources "YouTube")]
+    [:div {:class "disc-card card-art overflow-hidden flex flex-col"
+           :style {:border-left (str "3px solid " color)}}
+     (disc-source-header "YouTube" "по интересам" (str (count videos) " videos"))
+     [:div {:class "flex flex-col divide-y divide-stone-100/70"}
+      (for [{:keys [url title topic points]} (take 7 videos)]
+        [:div {:class "group flex items-start gap-3 px-4 py-2.5 hover:bg-stone-50/60 transition-colors"}
+         [:div {:class "flex-1 min-w-0"}
+          [:a {:href url :target "_blank" :rel "noopener noreferrer"
+               :class "text-[13px] font-medium leading-snug hover:underline text-stone-800 line-clamp-2"}
+           title]
+          [:div {:class "flex items-center gap-2 mt-0.5"}
+           (when (seq topic)
+             [:span {:class "text-[11px] text-stone-400"} topic])
+           (when (pos? (or points 0))
+             [:span {:class "text-[11px] text-stone-400 font-mono"} (str points " pts")])]]
+         (disc-add-btn url "video")])]]))

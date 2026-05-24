@@ -2,6 +2,7 @@
   (:require [com.readlater.db :as db]
             [com.readlater.components :as c]
             [com.biffweb :as biff]
+            [rum.core :as rum]
             [xtdb.api :as xt]))
 
 (defn- notif-icon [type]
@@ -30,8 +31,8 @@
     "bg-stone-400"))
 
 (defn- notif-item [{:keys [xt/id notif/type notif/title notif/body notif/link notif/read notif/created-at]}]
-  [:div {:class (str "flex gap-3 px-4 py-3.5 hover:bg-stone-50 transition-colors cursor-default border-b border-stone-100/80 last:border-0"
-                     (when-not read " bg-[#FDFAF7]"))}
+  [:div {:class (str "notif-row flex gap-3 px-4 py-3.5 transition-colors cursor-default border-b border-stone-100/80 last:border-0"
+                     (when-not read " notif-unread"))}
    (notif-icon type)
    [:div {:class "flex-1 min-w-0"}
     [:div {:class "flex items-start justify-between gap-2 mb-0.5"}
@@ -44,7 +45,7 @@
        "Open article →"])]
    [:div {:class "flex items-start gap-0.5 shrink-0"}
     (when-not read [:span {:class (str "w-1.5 h-1.5 rounded-full mt-1.5 " (notif-dot-class type))}])
-    [:button {:class "w-5 h-5 rounded flex items-center justify-center text-stone-300 hover:text-stone-500 hover:bg-stone-100 transition-colors"
+    [:button {:class "w-5 h-5 rounded flex items-center justify-center text-stone-300 hover:text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors"
               :hx-delete (str "/api/notifications/item/" id)
               :hx-swap   "outerHTML"
               :hx-target "closest .notif-item-wrap"}
@@ -81,7 +82,7 @@
 (defn drawer-fragment [{:keys [biff/db]}]
   (c/html-frag (drawer-content (db/recent-notifications db))))
 
-(defn mark-all-read [{:keys [biff/db] :as ctx}]
+(defn mark-all-read [{:keys [biff/db biff.xtdb/node] :as ctx}]
   (let [unread (->> (xt/q db '{:find [(pull ?e [:xt/id])]
                                :where [[?e :notif/type _]
                                        [?e :notif/read false]]})
@@ -89,7 +90,14 @@
     (doseq [{:keys [xt/id]} unread]
       (biff/submit-tx ctx [{:db/op :update :db/doc-type :notification
                             :xt/id id :notif/read true}])))
-  (c/html-frag (drawer-content (db/recent-notifications (:biff/db ctx)))))
+  ;; Use a fresh DB snapshot taken *after* all transactions are indexed
+  (let [fresh-db (xt/db node)]
+    {:status  200
+     :headers {"content-type" "text/html; charset=UTF-8"}
+     :body    (str (rum/render-static-markup (drawer-content (db/recent-notifications fresh-db)))
+                   (rum/render-static-markup
+                    [:span {:id "badge-notif" :hx-swap-oob "true"
+                            :class "notif-bell-badge hidden"}]))}))
 
 (defn dismiss-notif [{:keys [path-params] :as ctx}]
   (let [id (some-> (:id path-params) parse-uuid)]

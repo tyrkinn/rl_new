@@ -68,6 +68,9 @@
        (sort-by :notif/created-at #(compare %2 %1))
        (take 50)))
 
+(defn app-settings [db]
+  (ffirst (xt/q db '{:find [(pull ?e [*])] :where [[?e :xt/id :settings/global]]})))
+
 (defn base-page-opts [db]
   {:inbox-count (count-inbox db)
    :queue-count (count-queue db)

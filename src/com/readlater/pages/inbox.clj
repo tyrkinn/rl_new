@@ -5,11 +5,87 @@
             [com.readlater.url :as url]
             [com.readlater.search :as search]
             [com.readlater.worker :as worker]
+            [com.readlater.llm :as llm]
             [com.biffweb :as biff]
             [rum.core :as rum]
             [xtdb.api :as xt]
-            [clojure.string :as str])
+            [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.tools.logging :as log])
   (:import [java.util UUID]))
+
+(def ^:private summary-prompt-tpl
+  (delay
+    (if-let [r (io/resource "prompts/article-summary.md")]
+      (slurp r)
+      (throw (ex-info "prompts/article-summary.md not found" {})))))
+
+(def ^:private kind-options
+  [[:article  "article"  "file"]
+   [:video    "video"    "play-circle"]
+   [:bookmark "bookmark" "bookmark"]
+   [:thread   "thread"   "message-square"]
+   [:paper    "paper"    "file-text"]])
+
+(defn- kind-badge-section [article-id kind]
+  [:div {:id "kind-badge"}
+   [:button {:class     "p-0 bg-transparent border-0 cursor-pointer inline-flex items-center gap-1 group"
+             :title     "Change type"
+             :hx-get    (str "/api/articles/" article-id "/kind-picker")
+             :hx-target "#kind-badge"
+             :hx-swap   "outerHTML"}
+    (c/kind-badge (or kind :article))
+    [:i {:data-lucide "pencil"
+         :class       "icon-sm text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity"}]]])
+
+(defn- kind-picker-section [article-id current-kind]
+  [:div {:id "kind-badge" :class "flex items-center gap-1 flex-wrap"}
+   (for [[k label icon] kind-options]
+     (let [active? (= k (or current-kind :article))]
+       [:button {:class     (str "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide border transition-all "
+                                 (if active?
+                                   "bg-stone-800 text-white border-stone-800"
+                                   "bg-white text-stone-500 border-stone-200 hover:border-stone-400"))
+                 :hx-post   (str "/api/articles/" article-id "/kind")
+                 :hx-vals   (str "{\"kind\":\"" label "\"}")
+                 :hx-target "#kind-badge"
+                 :hx-swap   "outerHTML"}
+        [:i {:data-lucide icon :class "icon-sm"}]
+        label]))])
+
+(defn- render-summary-section [article-id summary]
+  [:div {:id "summary-section" :class "mb-6 mt-2"}
+   [:div {:class "flex items-center justify-between mb-2"}
+    [:h2 {:class "text-xs font-semibold uppercase tracking-wider text-stone-400"} "Detailed Summary"]
+    [:button {:class            "btn btn-xs btn-ghost text-stone-400 gap-1"
+              :hx-post          (str "/api/articles/" article-id "/summarize")
+              :hx-target        "#summary-section"
+              :hx-swap          "outerHTML"}
+     [:i {:data-lucide "refresh-cw" :class "icon-sm"}]
+     "Regenerate"]]
+   [:div {:class "space-y-3"}
+    (for [para (remove str/blank? (str/split summary #"\n\n+"))]
+      [:p {:class "text-sm text-stone-700 leading-relaxed"} para])]])
+
+(defn- render-summary-button [article-id]
+  [:div {:id "summary-section" :class "mb-6"}
+   [:button {:class     "btn btn-sm btn-outline gap-2 text-stone-600 border-stone-300 hover:bg-stone-50"
+             :hx-post   (str "/api/articles/" article-id "/summarize")
+             :hx-target "#summary-section"
+             :hx-swap   "outerHTML"}
+    [:i {:data-lucide "sparkles" :class "icon-sm"}]
+    "Generate detailed summary"]])
+
+(defn- render-summary-pending [article-id]
+  [:div {:id         "summary-section"
+         :class      "mb-6"
+         :hx-get     (str "/api/articles/" article-id "/summary-status")
+         :hx-trigger "every 3s"
+         :hx-swap    "outerHTML"}
+   [:button {:class    "btn btn-sm btn-outline gap-2 text-stone-400 border-stone-200 cursor-not-allowed"
+             :disabled true}
+    [:span {:class "loading loading-spinner loading-xs"}]
+    "Summarizing…"]])
 
 (defn inbox-page [{:keys [biff/db]}]
   (let [items (db/inbox-articles db)]
@@ -65,7 +141,7 @@
                     article/why-interesting article/reading-time-min
                     article/quality-score article/published-at article/error
                     article/retry-count article/comments article/folder-id
-                    article/kind]} art
+                    article/kind article/full-summary article/summary-status]} art
             display-title (or title url)
             folders       (db/all-folders db)]
         (ui/page (merge (db/base-page-opts db)
@@ -88,36 +164,48 @@
                   [:div {:class "flex flex-col xl:flex-row gap-8 xl:items-start"}
                    ;; Left — article content
                    [:div {:class "flex-1 min-w-0 max-w-2xl mx-auto xl:mx-0 w-full"}
-                    [:div {:class "flex items-start justify-between gap-3 mb-3"}
-                     [:div {:class "flex-1 min-w-0"}
-                      [:h1 {:id              "article-title"
-                            :class           "serif-h1 text-2xl sm:text-3xl leading-tight cursor-text px-2 -mx-2 rounded-lg hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-accent-200 transition-colors"
-                            :contenteditable "false"
-                            :data-original   display-title
-                            :data-patch-url  (str "/api/articles/" id)
-                            :onclick         "if(this.contentEditable!=='true'){this.contentEditable='true';var r=document.createRange(),s=window.getSelection();r.selectNodeContents(this);r.collapse(false);s.removeAllRanges();s.addRange(r)}"
-                            :onkeydown       "if(event.key==='Enter'){event.preventDefault();this.blur()} if(event.key==='Escape'){this.innerText=this.dataset.original;this.blur()}"
-                            :onblur          "(function(el){el.contentEditable='false';var t=el.innerText.trim();if(!t||t===el.dataset.original)return;fetch(el.dataset.patchUrl,{method:'PATCH',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'title='+encodeURIComponent(t)}).then(function(r){if(r.ok){el.dataset.original=t;showSavedToast()}else el.innerText=el.dataset.original}).catch(function(){el.innerText=el.dataset.original})})(this)"}
-                       display-title]]
-                     [:div {:class "flex items-center gap-1 shrink-0"}
-                      [:a {:href url :target "_blank" :rel "noopener noreferrer" :class "btn btn-sm btn-ghost gap-1.5"}
-                       [:i {:data-lucide "external-link" :class "icon-sm"}]
-                       [:span {:class "hidden sm:inline"} "Open"]]
-                      [:button {:hx-post              (str "/api/articles/" id "/read")
-                                :hx-swap              "none"
-                                :hx-on--after-request "window.location='/inbox'"
-                                :class                "btn btn-sm btn-ghost gap-1.5 text-emerald-700"}
-                       [:i {:data-lucide "check" :class "icon-sm"}]
-                       [:span {:class "hidden sm:inline"} "Mark read"]]
-                      [:button {:hx-delete            (str "/api/articles/" id)
-                                :hx-confirm           "Delete this article?"
-                                :hx-swap              "none"
-                                :hx-on--after-request "window.location='/inbox'"
-                                :class                "btn btn-sm btn-ghost text-red-500"}
-                       [:i {:data-lucide "trash-2" :class "icon-sm"}]
-                       [:span {:class "hidden sm:inline"} "Delete"]]]]
+                    [:h1 {:id              "article-title"
+                          :class           "serif-h1 text-2xl sm:text-3xl leading-tight cursor-text px-2 -mx-2 rounded-lg hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-accent-200 transition-colors mb-3"
+                          :contenteditable "false"
+                          :data-original   display-title
+                          :data-patch-url  (str "/api/articles/" id)
+                          :onclick         "if(this.contentEditable!=='true'){this.contentEditable='true';var r=document.createRange(),s=window.getSelection();r.selectNodeContents(this);r.collapse(false);s.removeAllRanges();s.addRange(r)}"
+                          :onkeydown       "if(event.key==='Enter'){event.preventDefault();this.blur()} if(event.key==='Escape'){this.innerText=this.dataset.original;this.blur()}"
+                          :onblur          "(function(el){el.contentEditable='false';var t=el.innerText.trim();if(!t||t===el.dataset.original)return;fetch(el.dataset.patchUrl,{method:'PATCH',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'title='+encodeURIComponent(t)}).then(function(r){if(r.ok){el.dataset.original=t;showSavedToast()}else el.innerText=el.dataset.original}).catch(function(){el.innerText=el.dataset.original})})(this)"}
+                     display-title]
+                    [:div {:class "flex items-center gap-1 mb-3 flex-wrap"}
+                     [:a {:href url :target "_blank" :rel "noopener noreferrer" :class "btn btn-sm btn-ghost gap-1.5"}
+                      [:i {:data-lucide "external-link" :class "icon-sm"}]
+                      [:span {:class "hidden sm:inline"} "Open"]]
+                     [:button {:class    "btn btn-sm btn-ghost gap-1.5"
+                               :title    "Copy link"
+                               :data-url url
+                               :onclick  "navigator.clipboard.writeText(this.dataset.url);showToast({type:'success',title:'Link copied'})"}
+                      [:i {:data-lucide "link" :class "icon-sm"}]
+                      [:span {:class "hidden sm:inline"} "Copy link"]]
+                     (when (contains? #{nil :article :video :paper} kind)
+                       (if (= status :read)
+                         [:button {:hx-post              (str "/api/articles/" id "/unread")
+                                   :hx-swap              "none"
+                                   :hx-on--after-request "window.location.reload()"
+                                   :class                "btn btn-sm btn-ghost gap-1.5 text-stone-500"}
+                          [:i {:data-lucide "rotate-ccw" :class "icon-sm"}]
+                          [:span {:class "hidden sm:inline"} "Move to unread"]]
+                         [:button {:hx-post              (str "/api/articles/" id "/read")
+                                   :hx-swap              "none"
+                                   :hx-on--after-request "window.location='/inbox'"
+                                   :class                "btn btn-sm btn-ghost gap-1.5 text-emerald-700"}
+                          [:i {:data-lucide "check" :class "icon-sm"}]
+                          [:span {:class "hidden sm:inline"} "Mark read"]]))
+                     [:button {:hx-delete            (str "/api/articles/" id)
+                               :hx-confirm           "Delete this article?"
+                               :hx-swap              "none"
+                               :hx-on--after-request "window.location='/inbox'"
+                               :class                "btn btn-sm btn-ghost text-red-500"}
+                      [:i {:data-lucide "trash-2" :class "icon-sm"}]
+                      [:span {:class "hidden sm:inline"} "Delete"]]]
                     [:div {:class "flex items-center gap-2 text-sm text-stone-500 mb-6 flex-wrap"}
-                     (c/kind-badge kind)
+                     (kind-badge-section id kind)
                      (when byline [:span byline])
                      (when published-at [:span (str (.toString published-at))])
                      (when lang [:span {:class "chip"} lang])
@@ -135,6 +223,11 @@
                     (when why-interesting
                       [:div {:class "mb-6 p-4 rounded-lg bg-stone-50 border border-stone-200"}
                        [:p {:class "text-sm text-stone-600 italic"} why-interesting]])
+                    (when (= kind :article)
+                      (cond
+                        (seq full-summary)              (render-summary-section id full-summary)
+                        (= summary-status :pending)     (render-summary-pending id)
+                        :else                           (render-summary-button id)))
                     (when (or topic (seq tags))
                       [:div {:class "flex flex-wrap gap-1.5"}
                        (when topic [:span {:class "chip font-medium"} topic])
@@ -217,7 +310,7 @@
         (biff/submit-tx ctx [{:db/op :update :db/doc-type :article :xt/id id :article/title title}])
         (c/html-frag [:span "✓ Saved"])))))
 
-(defn mark-read [{:keys [path-params] :as ctx}]
+(defn mark-read [{:keys [biff/db path-params] :as ctx}]
   (let [id (some-> (:id path-params) parse-uuid)]
     (if-not id
       {:status 400 :body {:error "invalid id"}}
@@ -227,6 +320,22 @@
                               :xt/id          id
                               :article/status  :read
                               :article/read-at (db/now)}])
+        (when-let [art (xt/pull db '[*] id)]
+          (search/index-doc ctx (assoc art :article/status :read)))
+        {:status 200 :body {:ok true}}))))
+
+(defn mark-unread [{:keys [biff/db path-params] :as ctx}]
+  (let [id (some-> (:id path-params) parse-uuid)]
+    (if-not id
+      {:status 400 :body {:error "invalid id"}}
+      (do
+        (biff/submit-tx ctx [{:db/op          :update
+                              :db/doc-type    :article
+                              :xt/id          id
+                              :article/status  :ready
+                              :article/read-at nil}])
+        (when-let [art (xt/pull db '[*] id)]
+          (search/index-doc ctx (assoc art :article/status :ready)))
         {:status 200 :body {:ok true}}))))
 
 (defn add-comment [{:keys [biff/db path-params params] :as ctx}]
@@ -254,6 +363,87 @@
                               :article/deleted-at (db/now)}])
         (search/delete-doc ctx (str id))
         {:status 200 :body {:ok true}}))))
+
+(defn summarize-article [{:keys [biff/db path-params] :as ctx}]
+  (let [id  (some-> (:id path-params) parse-uuid)
+        art (when id (ffirst (xt/q db '{:find  [(pull ?e [:xt/id :article/url :article/title])]
+                                         :in    [id]
+                                         :where [[?e :xt/id id]
+                                                 [?e :article/url _]]}
+                                   id)))]
+    (if-not art
+      {:status 404 :body "not found"}
+      (do
+        (biff/submit-tx ctx [{:db/op                  :update
+                              :db/doc-type            :article
+                              :xt/id                  id
+                              :article/summary-status :pending}])
+        (future
+          (let [prompt (str/replace @summary-prompt-tpl "<URL>" (:article/url art))
+                {:keys [ok? data error]} (llm/invoke prompt {:allowed-tools "WebFetch"})]
+            (if ok?
+              (let [summary (str/trim (or (:summary data) ""))]
+                (if (seq summary)
+                  (do
+                    (biff/submit-tx ctx [{:db/op                  :update
+                                          :db/doc-type            :article
+                                          :xt/id                  id
+                                          :article/full-summary   summary
+                                          :article/summary-status :done}])
+                    (biff/submit-tx ctx [{:db/doc-type      :notification
+                                          :xt/id            (UUID/randomUUID)
+                                          :notif/type       :success
+                                          :notif/title      (str "Summary ready: " (or (:article/title art) "Article"))
+                                          :notif/body       "Подробное саммари было сгенерировано."
+                                          :notif/link       (str "/article/" id)
+                                          :notif/read       false
+                                          :notif/created-at (db/now)}]))
+                  (biff/submit-tx ctx [{:db/op                  :update
+                                        :db/doc-type            :article
+                                        :xt/id                  id
+                                        :article/summary-status :failed}])))
+              (do
+                (log/warn "summarize-article failed:" error)
+                (biff/submit-tx ctx [{:db/op                  :update
+                                      :db/doc-type            :article
+                                      :xt/id                  id
+                                      :article/summary-status :failed}])))))
+        (c/html-frag (render-summary-pending id))))))
+
+(defn summary-status [{:keys [biff/db path-params]}]
+  (let [id  (some-> (:id path-params) parse-uuid)
+        art (when id (ffirst (xt/q db '{:find  [(pull ?e [:xt/id :article/full-summary :article/summary-status])]
+                                         :in    [id]
+                                         :where [[?e :xt/id id]]}
+                                   id)))]
+    (if-not art
+      {:status 404 :body "not found"}
+      (let [{:keys [article/full-summary article/summary-status]} art]
+        (c/html-frag
+          (cond
+            (seq full-summary)              (render-summary-section id full-summary)
+            (= summary-status :pending)     (render-summary-pending id)
+            (= summary-status :failed)      [:div {:id "summary-section" :class "mb-6 space-y-2"}
+                                             [:p {:class "text-sm text-red-500"} "Не удалось сгенерировать саммари."]
+                                             (render-summary-button id)]
+            :else                           (render-summary-button id)))))))
+
+(defn kind-picker-handler [{:keys [biff/db path-params]}]
+  (let [id  (some-> (:id path-params) parse-uuid)
+        art (when id (ffirst (xt/q db '{:find [(pull ?e [:article/kind])]
+                                         :in    [id]
+                                         :where [[?e :xt/id id]]}
+                                   id)))]
+    (if-not art
+      {:status 404 :body "not found"}
+      (c/html-frag (kind-picker-section id (:article/kind art))))))
+
+(defn update-kind [{:keys [path-params params] :as ctx}]
+  (let [id       (some-> (:id path-params) parse-uuid)
+        new-kind (some-> (or (:kind params) (get params "kind")) keyword)]
+    (when (and id (#{:article :video :bookmark :thread :paper} new-kind))
+      (biff/submit-tx ctx [{:db/op :update :db/doc-type :article :xt/id id :article/kind new-kind}]))
+    (c/html-frag (kind-badge-section id new-kind))))
 
 (defn set-article-folder [{:keys [biff/db path-params params] :as ctx}]
   (let [article-id    (some-> (:id path-params) parse-uuid)
@@ -286,4 +476,9 @@
                                    :delete #'delete-article}]
    ["/api/articles/:id/comments"  {:post   #'add-comment}]
    ["/api/articles/:id/read"      {:post   #'mark-read}]
-   ["/api/articles/:id/folder"    {:post   #'set-article-folder}]])
+   ["/api/articles/:id/unread"    {:post   #'mark-unread}]
+   ["/api/articles/:id/folder"    {:post   #'set-article-folder}]
+   ["/api/articles/:id/summarize"       {:post #'summarize-article}]
+   ["/api/articles/:id/summary-status"  {:get  #'summary-status}]
+   ["/api/articles/:id/kind-picker"     {:get  #'kind-picker-handler}]
+   ["/api/articles/:id/kind"            {:post #'update-kind}]])

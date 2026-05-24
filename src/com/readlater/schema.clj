@@ -33,6 +33,8 @@
     [:article/paper-authors {:optional true} [:maybe [:vector :string]]]
     [:article/field         {:optional true} [:maybe :string]]
     [:article/synonyms      {:optional true} [:maybe [:vector :string]]]
+    [:article/full-summary    {:optional true} [:maybe :string]]
+    [:article/summary-status  {:optional true} [:maybe [:enum :pending :done :failed]]]
     [:article/comments      {:optional true} [:maybe [:vector [:map [:text :string] [:created-at inst?]]]]]
     [:article/added-at      inst?]
     [:article/enriched-at  {:optional true} [:maybe inst?]]

@@ -21,7 +21,7 @@
 (defn- collection-card
   [{:keys [collection/title collection/description collection/vibe collection/items]}
    arts-by-id]
-  [:div {:class "card-art p-6 flex flex-col w-72 md:w-80 shrink-0 snap-start"}
+  [:div {:class "card-art p-6 flex flex-col w-[82vw] sm:w-72 md:w-80 shrink-0 snap-start"}
    (when (seq vibe)
      [:span {:class "chip self-start mb-3"} vibe])
    [:h2 {:class "font-serif text-xl font-semibold leading-snug mb-2"} (or title "Collection")]
@@ -55,33 +55,42 @@
             [:h3 {:class "px-4 sm:px-6 lg:px-10 text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2"}
              [:i {:data-lucide "library" :class "icon-sm"}]
              "From Your Library"]
-            [:div {:class "flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory px-4 sm:px-6 lg:px-10 mb-6"}
+            [:div {:class "flex gap-3 overflow-x-auto pb-4 snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 lg:scroll-pl-10 px-4 sm:px-6 lg:px-10 mb-6"}
              (for [col (:rec/collections batch)]
-               (collection-card col arts-by-id))]])
-         ;; External discovery sections (HN + Lobsters)
-         (when external-cols
-           [:<>
-            [:h3 {:class "px-4 sm:px-6 lg:px-10 text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2 mt-2"}
-             [:i {:data-lucide "globe" :class "icon-sm"}]
-             "Discover"]
-            [:div {:class "flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory px-4 sm:px-6 lg:px-10"}
-             (for [ext external-cols]
-               (c/external-collection-card ext))]])])
+               (collection-card col arts-by-id))
+             [:div {:class "shrink-0 w-px"}]]])
+         ;; External discovery sections
+         (let [themed-cols  (remove #(#{:trending-repos :video-recs} (:type %)) external-cols)
+               github-col   (first (filter #(= :trending-repos (:type %)) external-cols))
+               video-col    (first (filter #(= :video-recs (:type %)) external-cols))]
+           (when (or (seq themed-cols) github-col video-col)
+             [:<>
+              [:h3 {:class "px-4 sm:px-6 lg:px-10 text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2 mt-2"}
+               [:i {:data-lucide "globe" :class "icon-sm"}]
+               "Discover"]
+              [:div {:class "px-4 sm:px-6 lg:px-10 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"}
+               (for [ext themed-cols]
+                 (c/external-collection-card ext))
+               (when github-col
+                 (c/github-trending-card github-col))
+               (when video-col
+                 (c/video-recs-card video-col))]]))])
 
-      (= :running (:status state))
-      [:div {:id         "rec-section"
-             :hx-get     "/api/recommendations/fragment"
-             :hx-trigger "every 4s"
-             :hx-target  "#rec-section"
-             :hx-swap    "outerHTML"
-             :class      "flex items-center gap-3 py-10 px-4 sm:px-6 lg:px-10 text-stone-400 text-sm"}
-       [:span {:class "loading loading-spinner loading-sm"}]
-       "Claude составляет подборки…"]
+    (= :running (:status state))
+    [:div {:id         "rec-section"
+           :hx-get     "/api/recommendations/fragment"
+           :hx-trigger "every 4s"
+           :hx-target  "#rec-section"
+           :hx-swap    "outerHTML"
+           :class      "px-4 sm:px-6 lg:px-10"}
+     [:div {:class "flex items-center gap-3 py-10 text-stone-400 text-sm"}
+      [:span {:class "loading loading-spinner loading-sm"}]
+      "Claude составляет подборки…"]]
 
-      :else
-      [:div {:id "rec-section" :class "py-6 px-4 sm:px-6 lg:px-10"}
-       [:p {:class "text-sm text-stone-400"}
-        "Добавь хотя бы 3 статьи в Inbox — Claude составит персональную подборку."]])))
+    :else
+    [:div {:id "rec-section" :class "px-4 sm:px-6 lg:px-10 py-6"}
+     [:p {:class "text-sm text-stone-400"}
+      "Добавь хотя бы 3 статьи в Inbox — Claude составит персональную подборку."]])))
 
 (defn today-page [{:keys [biff/db] :as ctx}]
   (worker/start-generation-if-needed! ctx)
@@ -90,25 +99,33 @@
         inbox-n (db/count-inbox db)]
     (ui/page (merge (db/base-page-opts db) {:active :today :title "Today" :crumbs "Today"})
              [:div {:class "py-6 sm:py-8"}
-              [:div {:class "px-4 sm:px-6 lg:px-10 max-w-3xl mx-auto w-full mb-8"}
-               [:h1 {:class "serif-h1 text-3xl sm:text-4xl mb-1"} (today-date-str)]
-               [:p {:class "text-sm text-stone-400"}
-                (if batch
-                  (let [lib-n (count (:rec/collections batch))
-                        ext-n (count (:rec/external-collections batch))]
-                    (str lib-n (if (= lib-n 1) " library collection" " library collections")
-                         (when (pos? ext-n)
-                           (str " · " ext-n " discovery " (if (= ext-n 1) "section" "sections")))))
-                  "Generating today's picks…")]]
+              [:div {:class "px-4 sm:px-6 lg:px-10 mb-8 flex items-start justify-between gap-3"}
+               [:div
+                [:h1 {:class "serif-h1 text-3xl sm:text-4xl mb-1"} (today-date-str)]
+                [:p {:class "text-sm text-stone-400"}
+                 (if batch
+                   (let [lib-n (count (:rec/collections batch))
+                         ext-n (count (:rec/external-collections batch))]
+                     (str lib-n (if (= lib-n 1) " library collection" " library collections")
+                          (when (pos? ext-n)
+                            (str " · " ext-n " discovery " (if (= ext-n 1) "section" "sections")))))
+                   "Generating today's picks…")]]
+               [:button {:class               "btn btn-sm btn-ghost text-stone-400 gap-1.5 shrink-0 mt-1"
+                         :title               "Regenerate"
+                         :hx-post             "/api/recommendations/regenerate"
+                         :hx-swap             "none"
+                         :hx-on--after-request "window.location.reload()"}
+                [:i {:data-lucide "refresh-cw" :class "icon-sm"}]
+                [:span {:class "hidden sm:inline text-xs"} "Regenerate"]]]
               [:section {:class "mb-10"}
-               [:h2 {:class "px-4 sm:px-6 lg:px-10 max-w-3xl mx-auto w-full text-xs font-semibold uppercase tracking-wider text-stone-400 mb-4 flex items-center gap-2"}
+               [:h2 {:class "px-4 sm:px-6 lg:px-10 text-xs font-semibold uppercase tracking-wider text-stone-400 mb-4 flex items-center gap-2"}
                 [:i {:data-lucide "sparkles" :class "icon-sm"}]
                 "Recommended Today"]
                (rec-section-content db)]
               (when (seq fresh)
                 [:<>
                  [:div {:class "border-t border-stone-200 mb-8"}]
-                 [:section {:class "px-4 sm:px-6 lg:px-10 max-w-3xl mx-auto w-full"}
+                 [:section {:class "px-4 sm:px-6 lg:px-10"}
                   [:h2 {:class "text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2"}
                    [:i {:data-lucide "inbox" :class "icon-sm"}]
                    "Fresh in Inbox"]

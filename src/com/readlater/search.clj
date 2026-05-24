@@ -62,12 +62,13 @@
                               article/url-normalized article/tags article/topic
                               article/tldr article/why-interesting article/keywords
                               article/status article/reading-time-min article/quality-score
-                              article/lang article/added-at]}]
+                              article/lang article/added-at article/kind]}]
   (let [title-tokens (camel-split title)
         merged-kw    (vec (distinct (concat (or keywords []) title-tokens)))]
     (cond-> {:id     (str id)
              :url    (or url "")
-             :status (name (or status :ready))}
+             :status (name (or status :ready))
+             :kind   (name (or kind :article))}
       title            (assoc :title title)
       byline           (assoc :byline byline)
       (seq tags)       (assoc :tags (vec tags))
@@ -228,11 +229,35 @@
              "Search unavailable"]))))))
 
 ;; ---------------------------------------------------------------------------
+;; Saved-items search (returns full XTDB docs)
+
+(defn saved-hits
+  "Search saved items (bookmark/thread/paper) via Meilisearch.
+   Returns seq of full XTDB docs pulled from DB, or nil on error."
+  [{:keys [params biff/db] :as ctx}]
+  (let [q      (str/trim (or (:q params) ""))
+        kind   (str/trim (or (:kind params) "all"))
+        base-f "kind IN [\"bookmark\",\"thread\",\"paper\"]"
+        filter (if (and (not= kind "all") (not (str/blank? kind)))
+                 (str "kind = \"" kind "\" AND " base-f)
+                 base-f)
+        body   {:q q :limit 50 :filter filter}]
+    (try
+      (let [res  (http/post (index-url ctx "/search")
+                            (assoc (req-opts ctx) :body (json/generate-string body)))
+            data (json/parse-string (:body res) true)
+            ids  (map #(java.util.UUID/fromString (:id %)) (:hits data))]
+        (->> ids (map #(xt/pull db '[*] %)) (remove nil?)))
+      (catch Exception e
+        (log/warn "search/saved-hits failed:" (.getMessage e))
+        nil))))
+
+;; ---------------------------------------------------------------------------
 ;; Biff startup component
 
 (def ^:private index-settings
   {:searchableAttributes ["title" "byline" "tldr" "why_interesting" "keywords" "tags" "topic"]
-   :filterableAttributes ["status" "tags" "topic" "lang"]
+   :filterableAttributes ["status" "tags" "topic" "lang" "kind"]
    :sortableAttributes   ["quality_score" "reading_time_min" "added_at"]
    :typoTolerance        {:enabled true
                           :minWordSizeForTypos {:oneTypo 4 :twoTypos 8}}

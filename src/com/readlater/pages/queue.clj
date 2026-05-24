@@ -6,16 +6,19 @@
   (:import [java.time Instant]))
 
 (defn- queue-body [db]
-  (let [all       (->> (xt/q db '{:find  [(pull ?e [*])]
-                                  :where [[?e :article/status _]]})
-                       (map first)
-                       (filter #(#{:queued :enriching :failed} (:article/status %)))
-                       (remove :article/deleted-at)
-                       (sort-by :article/added-at #(compare %2 %1)))
-        by-st     (group-by :article/status all)
-        enriching (get by-st :enriching [])
-        queued    (get by-st :queued [])
-        failed    (get by-st :failed [])]
+  (let [all        (->> (xt/q db '{:find  [(pull ?e [*])]
+                                   :where [[?e :article/status _]]})
+                        (map first)
+                        (filter #(#{:queued :enriching :failed} (:article/status %)))
+                        (remove :article/deleted-at)
+                        (sort-by :article/added-at #(compare %2 %1)))
+        by-st      (group-by :article/status all)
+        enriching  (get by-st :enriching [])
+        queued     (get by-st :queued [])
+        failed     (get by-st :failed [])
+        summarizing (->> (xt/q db '{:find  [(pull ?e [:xt/id :article/url :article/title])]
+                                    :where [[?e :article/summary-status :pending]]})
+                         (map first))]
     [:div {:id "queue-body" :hx-get "/api/queue/fragment" :hx-trigger "every 4s" :hx-swap "outerHTML"}
      (when (seq enriching)
        [:section {:class "mb-8"}
@@ -26,6 +29,16 @@
          (for [{:keys [xt/id article/url article/title]} enriching]
            [:div {:class "card-art px-4 py-3 flex items-center gap-3"}
             [:span {:class "loading loading-spinner loading-xs text-blue-500"}]
+            [:a {:href (str "/article/" id) :class "text-sm hover:underline truncate"} (or title url)]])]])
+     (when (seq summarizing)
+       [:section {:class "mb-8"}
+        [:h2 {:class "text-sm font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2"}
+         [:span {:class "w-2 h-2 rounded-full bg-violet-400 animate-pulse"}]
+         (str "Summarizing · " (count summarizing))]
+        [:div {:class "space-y-2"}
+         (for [{:keys [xt/id article/url article/title]} summarizing]
+           [:div {:class "card-art px-4 py-3 flex items-center gap-3"}
+            [:span {:class "loading loading-spinner loading-xs text-violet-500"}]
             [:a {:href (str "/article/" id) :class "text-sm hover:underline truncate"} (or title url)]])]])
      (when (seq queued)
        [:section {:class "mb-8"}
@@ -55,7 +68,7 @@
                       :hx-on--after-request "window.location.reload()"
                       :class                "btn btn-xs btn-ghost text-stone-500 shrink-0"}
              "Retry"]])]])
-     (when (and (empty? enriching) (empty? queued) (empty? failed))
+     (when (and (empty? enriching) (empty? summarizing) (empty? queued) (empty? failed))
        [:p {:class "text-sm text-stone-400 mt-10 text-center"}
         "Queue is empty — all articles are processed."])]))
 

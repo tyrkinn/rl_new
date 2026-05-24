@@ -415,11 +415,106 @@
       (log/warn "fetch-lobsters-top failed:" (.getMessage e))
       nil)))
 
-(defn- theme-group-external [items source-label]
+(defn- fetch-dev-to-top []
+  (try
+    (let [resp (hc/get "https://dev.to/api/articles"
+                       {:query-params {"per_page" "30" "top" "1"}
+                        :headers      {"User-Agent" "readlater-app/1.0"}
+                        :as           :json})
+          articles (:body resp)]
+      (->> articles
+           (filter #(seq (:url %)))
+           (mapv #(hash-map :title (or (:title %) "")
+                            :url   (or (:url %) "")
+                            :tags  (vec (or (:tag_list %) []))))))
+    (catch Exception e
+      (log/warn "fetch-dev-to failed:" (.getMessage e))
+      nil)))
+
+(defn- fetch-reddit-programming []
+  (try
+    (let [resp (hc/get "https://www.reddit.com/r/programming/top.json"
+                       {:query-params {"limit" "25" "t" "day"}
+                        :headers      {"User-Agent" "readlater-app/1.0"}
+                        :as           :json})
+          posts (get-in resp [:body :data :children])]
+      (->> posts
+           (map #(get % :data))
+           (filter #(and (not (:is_self %)) (seq (:url %))))
+           (mapv #(hash-map :title (or (:title %) "")
+                            :url   (or (:url %) "")
+                            :score (or (:score %) 0)))))
+    (catch Exception e
+      (log/warn "fetch-reddit-programming failed:" (.getMessage e))
+      nil)))
+
+(defn- fetch-github-trending-repos []
+  (try
+    (let [date-cutoff (.toString (.minusDays (LocalDate/now) 7))
+          resp (hc/get "https://api.github.com/search/repositories"
+                       {:query-params {"q"        (str "created:>" date-cutoff)
+                                       "sort"     "stars"
+                                       "order"    "desc"
+                                       "per_page" "15"}
+                        :headers      {"User-Agent" "readlater-app/1.0"
+                                       "Accept"     "application/vnd.github.v3+json"}
+                        :as           :json})
+          items (get-in resp [:body :items])]
+      (->> items
+           (mapv #(hash-map :name        (or (:full_name %) "")
+                            :url         (or (:html_url %) "")
+                            :description (or (:description %) "")
+                            :stars       (or (:stargazers_count %) 0)
+                            :language    (or (:language %) "")))))
+    (catch Exception e
+      (log/warn "fetch-github-trending-repos failed:" (.getMessage e))
+      nil)))
+
+(defn- fetch-youtube-by-interests [interests]
+  (when (seq interests)
+    (try
+      (let [topics   (->> (str/split interests #"[,\n]+")
+                          (map str/trim)
+                          (remove str/blank?)
+                          (take 3))
+            month-ago (- (quot (System/currentTimeMillis) 1000) (* 30 24 3600))]
+        (->> topics
+             (mapcat
+              (fn [topic]
+                (try
+                  (let [resp (hc/get "https://hn.algolia.com/api/v1/search"
+                                     {:query-params {"query"          topic
+                                                     "tags"           "story"
+                                                     "numericFilters" (str "created_at_i>" month-ago)
+                                                     "hitsPerPage"    "20"}
+                                      :as           :json})
+                        hits (get-in resp [:body :hits])]
+                    (->> hits
+                         (filter #(re-find #"youtube\.com/watch|youtu\.be/" (or (:url %) "")))
+                         (mapv #(hash-map :title  (or (:title %) "")
+                                          :url    (or (:url %) "")
+                                          :points (or (:points %) 0)
+                                          :topic  topic))))
+                  (catch Exception e
+                    (log/warn "fetch-youtube topic" topic ":" (.getMessage e))
+                    []))))
+             (map (juxt :url identity))
+             (into {})
+             vals
+             (sort-by :points >)
+             (take 8)
+             vec
+             not-empty))
+      (catch Exception e
+        (log/warn "fetch-youtube-by-interests failed:" (.getMessage e))
+        nil))))
+
+(defn- theme-group-external [items source-label interests]
   (when (seq items)
     (try
       (let [prompt (-> @theme-external-prompt-template
-                       (str/replace "<SOURCE>"      source-label)
+                       (str/replace "<SOURCE>"       source-label)
+                       (str/replace "<INTERESTS>"    (or (not-empty interests) "не указано"))
                        (str/replace "<STORIES_JSON>" (json/generate-string items)))
             {:keys [ok? data error]} (llm/invoke prompt {})]
         (if ok?
@@ -486,37 +581,57 @@
                                  (or items []))})
 
 (defn- do-generate! [sys]
-  (let [db       (xt/db (:biff.xtdb/node sys))
-        articles (recs-articles db)]
+  (let [db        (xt/db (:biff.xtdb/node sys))
+        articles  (recs-articles db)
+        settings  (ffirst (xt/q db '{:find [(pull ?e [:settings/interests])]
+                                      :where [[?e :xt/id :settings/global]]}))
+        interests (or (:settings/interests settings) "")]
     (if (< (count articles) 3)
       (do (log/info "recommend: fewer than 3 ready articles, skipping")
           (reset! generation-state {:status :idle}))
       (let [recent  (recent-rec-ids db)
-            prompt  (build-rec-prompt articles recent nil)
-            ;; Start external fetches in parallel while Claude works on library
-            hn-future      (future (fetch-hn-top))
-            lobsters-future (future (fetch-lobsters-top))
+            prompt  (build-rec-prompt articles recent interests)
+            ;; Start all external fetches in parallel while Claude works on library
+            hn-future           (future (fetch-hn-top))
+            lobsters-future     (future (fetch-lobsters-top))
+            dev-to-future       (future (fetch-dev-to-top))
+            reddit-future       (future (fetch-reddit-programming))
+            github-repos-future (future (fetch-github-trending-repos))
+            youtube-future      (when (seq interests) (future (fetch-youtube-by-interests interests)))
             {:keys [ok? data error]} (llm/invoke prompt {})]
         (if-not ok?
           (do (log/warn "recommend: claude failed:" error)
               (reset! generation-state {:status :error :error error}))
           (let [;; Library collections — take only the first one
-                collections      (vec (take 1 (mapv map-collection (get data :collections []))))
-                ;; Deref external fetches
-                hn-items         (try @hn-future
-                                   (catch Exception e
-                                     (log/warn "recommend: hn fetch exception:" (.getMessage e))
-                                     nil))
-                lobsters-items   (try @lobsters-future
-                                   (catch Exception e
-                                     (log/warn "recommend: lobsters fetch exception:" (.getMessage e))
-                                     nil))
-                ;; Theme-group external sources
-                hn-collection      (when (seq hn-items)
-                                     (theme-group-external hn-items "HackerNews"))
-                lobsters-collection (when (seq lobsters-items)
-                                      (theme-group-external lobsters-items "Lobsters"))
-                external-cols    (vec (remove nil? [hn-collection lobsters-collection]))
+                collections    (vec (take 1 (mapv map-collection (get data :collections []))))
+                ;; Deref external data fetches
+                hn-items       (try @hn-future       (catch Exception e (log/warn "hn future:" (.getMessage e)) nil))
+                lobsters-items (try @lobsters-future  (catch Exception e (log/warn "lobsters future:" (.getMessage e)) nil))
+                dev-to-items   (try @dev-to-future    (catch Exception e (log/warn "dev-to future:" (.getMessage e)) nil))
+                reddit-items   (try @reddit-future    (catch Exception e (log/warn "reddit future:" (.getMessage e)) nil))
+                github-repos   (try @github-repos-future (catch Exception e (log/warn "github future:" (.getMessage e)) nil))
+                youtube-videos (when youtube-future (try @youtube-future (catch Exception e (log/warn "youtube future:" (.getMessage e)) nil)))
+                ;; Theme-group external sources in parallel
+                hn-coll-fut       (when (seq hn-items)       (future (theme-group-external hn-items "HackerNews" interests)))
+                lobsters-coll-fut (when (seq lobsters-items)  (future (theme-group-external lobsters-items "Lobsters" interests)))
+                dev-to-coll-fut   (when (seq dev-to-items)    (future (theme-group-external dev-to-items "Dev.to" interests)))
+                reddit-coll-fut   (when (seq reddit-items)    (future (theme-group-external reddit-items "Reddit" interests)))
+                hn-collection       (when hn-coll-fut       (try @hn-coll-fut       (catch Exception _ nil)))
+                lobsters-collection (when lobsters-coll-fut  (try @lobsters-coll-fut (catch Exception _ nil)))
+                dev-to-collection   (when dev-to-coll-fut    (try @dev-to-coll-fut   (catch Exception _ nil)))
+                reddit-collection   (when reddit-coll-fut    (try @reddit-coll-fut   (catch Exception _ nil)))
+                ;; GitHub trending as special repos card
+                github-trending-col (when (seq github-repos)
+                                      {:type         :trending-repos
+                                       :source-label "GitHub"
+                                       :repos        (vec (take 10 github-repos))})
+                ;; YouTube videos matched to user interests
+                youtube-col         (when (seq youtube-videos)
+                                      {:type   :video-recs
+                                       :videos youtube-videos})
+                external-cols  (vec (remove nil? [hn-collection lobsters-collection
+                                                  dev-to-collection reddit-collection
+                                                  github-trending-col youtube-col]))
                 batch-id         (UUID/randomUUID)
                 tx-doc           (cond-> {:db/doc-type         :rec
                                           :xt/id               batch-id
@@ -527,7 +642,7 @@
                                    (seq external-cols)
                                    (assoc :rec/external-collections external-cols))]
             (biff/submit-tx sys [tx-doc])
-            (log/info "recommend: saved" (count collections) "library collection(s) and"
+            (log/info "recommend: saved" (count collections) "library,"
                       (count external-cols) "external collection(s) for"
                       (.toString (LocalDate/now)))
             (reset! generation-state {:status :idle})))))))
@@ -557,6 +672,8 @@
   (if (= :running (:status @generation-state))
     {:status 200 :body {:status "already-running"}}
     (do
+      (when-let [batch (today-batch db)]
+        (biff/submit-tx ctx [{:db/op :delete :xt/id (:xt/id batch)}]))
       (reset! generation-state {:status :running :started-at (now)})
       (future
         (try

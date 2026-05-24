@@ -6,7 +6,7 @@
 
 (defn archive-page [{:keys [biff/db]}]
   (let [articles (->> (xt/q db '{:find  [(pull ?e [*])]
-                                 :where [[?e :article/read-at _]]})
+                                 :where [[?e :article/status :read]]})
                       (map first)
                       (remove :article/deleted-at)
                       (sort-by :article/read-at #(compare %2 %1)))]
