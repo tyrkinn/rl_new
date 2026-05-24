@@ -67,6 +67,8 @@
 
 (defn kind-badge [kind]
   (case kind
+    :article  [:span {:class "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-stone-100 text-stone-600 border border-stone-200"}
+               [:i {:data-lucide "file" :class "icon-sm"}] "article"]
     :video    [:span {:class "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-red-50 text-red-600 border border-red-100"}
                [:i {:data-lucide "play-circle" :class "icon-sm"}] "video"]
     :bookmark [:span {:class "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-blue-50 text-blue-600 border border-blue-100"}

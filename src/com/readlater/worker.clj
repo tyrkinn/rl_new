@@ -67,6 +67,25 @@
     :else nil))
 
 ;; ---------------------------------------------------------------------------
+;; Kind migration — runs once at startup, classifies nil-kind articles
+
+(defn use-kind-migration [system]
+  (let [db            (xt/db (:biff.xtdb/node system))
+        unclassified  (->> (xt/q db '{:find [(pull ?e [:xt/id :article/url :article/kind])]
+                                      :where [[?e :article/url _]]})
+                           (map first)
+                           (filter #(nil? (:article/kind %))))]
+    (when (seq unclassified)
+      (log/info "kind-migration: classifying" (count unclassified) "articles")
+      (doseq [{:keys [xt/id article/url]} unclassified]
+        (biff/submit-tx system
+                        [{:db/op        :update
+                          :db/doc-type  :article
+                          :xt/id        id
+                          :article/kind (or (detect-kind url) :article)}]))))
+  system)
+
+;; ---------------------------------------------------------------------------
 ;; Enrichment prompts per kind
 
 (defn- load-prompt [name]

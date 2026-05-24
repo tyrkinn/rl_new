@@ -12,7 +12,8 @@
             [com.readlater.pages.search         :as search-pg]
             [com.readlater.pages.settings       :as settings-pg]
             [com.readlater.pages.notifications  :as notifications]
-            [com.readlater.pages.saved          :as saved]))
+            [com.readlater.pages.saved          :as saved]
+            [com.readlater.pages.roadmap        :as roadmap]))
 
 (defn health [{:keys [biff/db]}]
   {:status 200 :body {:ok true :db_ok (boolean db) :version "0.1.0"}})
@@ -45,7 +46,8 @@
                  queue/routes
                  folders/routes
                  search-pg/routes
-                 settings-pg/routes])
+                 settings-pg/routes
+                 roadmap/routes])
 
    :api-routes
    (into [] cat [today/api-routes

@@ -64,7 +64,8 @@
                     article/status article/tldr article/tags article/topic
                     article/why-interesting article/reading-time-min
                     article/quality-score article/published-at article/error
-                    article/retry-count article/comments article/folder-id]} art
+                    article/retry-count article/comments article/folder-id
+                    article/kind]} art
             display-title (or title url)
             folders       (db/all-folders db)]
         (ui/page (merge (db/base-page-opts db)
@@ -91,11 +92,12 @@
                      [:div {:class "flex-1 min-w-0"}
                       [:h1 {:id              "article-title"
                             :class           "serif-h1 text-2xl sm:text-3xl leading-tight cursor-text px-2 -mx-2 rounded-lg hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-accent-200 transition-colors"
-                            :contenteditable "true"
+                            :contenteditable "false"
                             :data-original   display-title
                             :data-patch-url  (str "/api/articles/" id)
+                            :onclick         "if(this.contentEditable!=='true'){this.contentEditable='true';var r=document.createRange(),s=window.getSelection();r.selectNodeContents(this);r.collapse(false);s.removeAllRanges();s.addRange(r)}"
                             :onkeydown       "if(event.key==='Enter'){event.preventDefault();this.blur()} if(event.key==='Escape'){this.innerText=this.dataset.original;this.blur()}"
-                            :onblur          "(function(el){var t=el.innerText.trim();if(!t||t===el.dataset.original)return;fetch(el.dataset.patchUrl,{method:'PATCH',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'title='+encodeURIComponent(t)}).then(function(r){if(r.ok){el.dataset.original=t;showSavedToast()}else el.innerText=el.dataset.original}).catch(function(){el.innerText=el.dataset.original})})(this)"}
+                            :onblur          "(function(el){el.contentEditable='false';var t=el.innerText.trim();if(!t||t===el.dataset.original)return;fetch(el.dataset.patchUrl,{method:'PATCH',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'title='+encodeURIComponent(t)}).then(function(r){if(r.ok){el.dataset.original=t;showSavedToast()}else el.innerText=el.dataset.original}).catch(function(){el.innerText=el.dataset.original})})(this)"}
                        display-title]]
                      [:div {:class "flex items-center gap-1 shrink-0"}
                       [:a {:href url :target "_blank" :rel "noopener noreferrer" :class "btn btn-sm btn-ghost gap-1.5"}
@@ -115,6 +117,7 @@
                        [:i {:data-lucide "trash-2" :class "icon-sm"}]
                        [:span {:class "hidden sm:inline"} "Delete"]]]]
                     [:div {:class "flex items-center gap-2 text-sm text-stone-500 mb-6 flex-wrap"}
+                     (c/kind-badge kind)
                      (when byline [:span byline])
                      (when published-at [:span (str (.toString published-at))])
                      (when lang [:span {:class "chip"} lang])
