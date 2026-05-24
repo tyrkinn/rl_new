@@ -4,11 +4,27 @@
 
 (defn now [] (Instant/now))
 
+(defn- inbox-kind? [k]
+  (#{:article :video nil} k))
+
+(defn- saved-kind? [k]
+  (#{:bookmark :thread :paper} k))
+
 (defn inbox-articles [db]
   (->> (xt/q db '{:find  [(pull ?e [*])]
                   :where [[?e :article/status _]]})
        (map first)
-       (filter #(= :ready (:article/status %)))
+       (filter #(and (= :ready (:article/status %))
+                     (inbox-kind? (:article/kind %))))
+       (remove :article/deleted-at)
+       (sort-by :article/added-at #(compare %2 %1))))
+
+(defn saved-items [db]
+  (->> (xt/q db '{:find  [(pull ?e [*])]
+                  :where [[?e :article/status _]]})
+       (map first)
+       (filter #(and (= :ready (:article/status %))
+                     (saved-kind? (:article/kind %))))
        (remove :article/deleted-at)
        (sort-by :article/added-at #(compare %2 %1))))
 

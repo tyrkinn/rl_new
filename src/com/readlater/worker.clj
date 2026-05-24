@@ -55,16 +55,37 @@
   system)
 
 ;; ---------------------------------------------------------------------------
-;; Enrichment prompt
+;; Kind detection from URL pattern
 
-(def ^:private enrich-prompt-template
+(defn detect-kind
+  "Infer content kind from URL pattern. Returns nil when ambiguous (article/bookmark)."
+  [^String url]
+  (cond
+    (re-find #"(?i)(youtube\.com/watch|youtu\.be/|vimeo\.com/\d|dailymotion\.com/video|twitch\.tv/videos)" url) :video
+    (re-find #"(?i)(arxiv\.org/abs|arxiv\.org/pdf|doi\.org/|researchgate\.net/publication|semanticscholar\.org/paper|ncbi\.nlm\.nih\.gov/pmc)" url) :paper
+    (re-find #"(?i)(twitter\.com/[^/?]+/status/|x\.com/[^/?]+/status/|reddit\.com/r/[^/]+/comments/|news\.ycombinator\.com/item|lobste\.rs/s/)" url) :thread
+    :else nil))
+
+;; ---------------------------------------------------------------------------
+;; Enrichment prompts per kind
+
+(defn- load-prompt [name]
   (delay
-    (if-let [r (io/resource "prompts/enrich.md")]
+    (if-let [r (io/resource (str "prompts/" name ".md"))]
       (slurp r)
-      (throw (ex-info "resources/prompts/enrich.md not found" {})))))
+      (throw (ex-info (str "prompts/" name ".md not found") {})))))
 
-(defn- build-enrich-prompt [url]
-  (str/replace @enrich-prompt-template "<URL>" url))
+(def ^:private prompts
+  {:article  (load-prompt "enrich-article")
+   :video    (load-prompt "enrich-video")
+   :bookmark (load-prompt "enrich-bookmark")
+   :thread   (load-prompt "enrich-thread")
+   :paper    (load-prompt "enrich-paper")})
+
+(defn- build-enrich-prompt [url kind]
+  (let [k       (or kind :article)
+        tmpl    (get prompts k (get prompts :article))]
+    (str/replace @tmpl "<URL>" url)))
 
 ;; ---------------------------------------------------------------------------
 ;; Field mapping: Claude JSON → XTDB article attrs
@@ -82,22 +103,50 @@
                     .toInstant)
                 (catch Exception _ nil))))))
 
-(defn- map-claude-fields [{:keys [title byline lang topic why_interesting
-                                  tldr tags keywords synonyms
-                                  reading_time_min quality_score published_at]}]
+(defn- kind-kw [s]
+  (when (string? s)
+    (get {"article" :article "video" :video "bookmark" :bookmark
+          "thread"  :thread  "paper" :paper} s nil)))
+
+(defn- map-claude-fields [{:keys [kind title byline lang topic why_interesting
+                                   tldr tags keywords synonyms
+                                   reading_time_min quality_score published_at
+                                   ;; video
+                                   channel platform duration_min
+                                   ;; bookmark
+                                   description category
+                                   ;; thread
+                                   author_handle
+                                   ;; paper
+                                   paper_authors field abstract_summary key_findings]}]
   (cond-> {}
-    (seq title)              (assoc :article/title title)
-    (seq byline)             (assoc :article/byline byline)
-    (seq lang)               (assoc :article/lang lang)
-    (seq topic)              (assoc :article/topic topic)
-    (seq why_interesting)    (assoc :article/why-interesting why_interesting)
-    (safe-str-vec tldr)      (assoc :article/tldr (safe-str-vec tldr))
-    (safe-str-vec tags)      (assoc :article/tags (safe-str-vec tags))
-    (safe-str-vec keywords)  (assoc :article/keywords (safe-str-vec keywords))
-    (safe-str-vec synonyms)  (assoc :article/synonyms (safe-str-vec synonyms))
+    (kind-kw kind)             (assoc :article/kind (kind-kw kind))
+    (seq title)                (assoc :article/title title)
+    (seq byline)               (assoc :article/byline byline)
+    (seq lang)                 (assoc :article/lang lang)
+    (seq topic)                (assoc :article/topic topic)
+    (seq why_interesting)      (assoc :article/why-interesting why_interesting)
+    (seq description)          (assoc :article/why-interesting description)
+    (safe-str-vec tldr)        (assoc :article/tldr (safe-str-vec tldr))
+    (safe-str-vec tags)        (assoc :article/tags (safe-str-vec tags))
+    (safe-str-vec keywords)    (assoc :article/keywords (safe-str-vec keywords))
+    (safe-str-vec synonyms)    (assoc :article/synonyms (safe-str-vec synonyms))
     (number? reading_time_min) (assoc :article/reading-time-min (int reading_time_min))
     (number? quality_score)    (assoc :article/quality-score (int quality_score))
-    (parse-instant published_at) (assoc :article/published-at (parse-instant published_at))))
+    (parse-instant published_at) (assoc :article/published-at (parse-instant published_at))
+    ;; video fields
+    (seq channel)              (assoc :article/channel channel)
+    (seq platform)             (assoc :article/platform platform)
+    (number? duration_min)     (assoc :article/duration-min (int duration_min))
+    ;; bookmark fields
+    (seq category)             (assoc :article/category category)
+    ;; thread fields
+    (seq author_handle)        (assoc :article/author-handle author_handle)
+    ;; paper fields
+    (safe-str-vec paper_authors) (assoc :article/paper-authors (safe-str-vec paper_authors))
+    (seq field)                (assoc :article/field field)
+    (seq abstract_summary)     (assoc :article/why-interesting abstract_summary)
+    (safe-str-vec key_findings) (assoc :article/key-findings (safe-str-vec key_findings))))
 
 ;; ---------------------------------------------------------------------------
 ;; Error classification
@@ -127,11 +176,11 @@
 ;; ---------------------------------------------------------------------------
 ;; Core enrichment — called in a future, article is already :enriching
 
-(defn- enrich-one! [sys {:keys [xt/id article/url article/retry-count]
+(defn- enrich-one! [sys {:keys [xt/id article/url article/kind article/retry-count]
                          :or   {retry-count 0}
                          :as   article}]
-  (log/info "enrich: processing" url)
-  (let [{:keys [ok? data error]} (llm/invoke (build-enrich-prompt url)
+  (log/info "enrich: processing" url "kind:" kind)
+  (let [{:keys [ok? data error]} (llm/invoke (build-enrich-prompt url kind)
                                              {:allowed-tools "WebFetch"})]
     (cond
       ;; Claude process failed / JSON parse error → retry with backoff
@@ -175,27 +224,34 @@
                                      :xt/id id :article/status :ready
                                      :article/enriched-at (now)}
                                     fields)])
-        (biff/submit-tx sys [{:db/doc-type    :notification
-                              :xt/id          (UUID/randomUUID)
-                              :notif/type     :success
-                              :notif/title    title
-                              :notif/body     "Article enriched and ready to read"
-                              :notif/link     (str "/article/" id)
-                              :notif/read     false
-                              :notif/created-at (now)}])
+        (let [final-kind (or (:article/kind fields) kind :article)
+              notif-body (case final-kind
+                           :video    "Video saved — ready to watch"
+                           :bookmark "Bookmark enriched"
+                           :thread   "Thread saved"
+                           :paper    "Paper saved"
+                           "Article enriched and ready to read")]
+          (biff/submit-tx sys [{:db/doc-type    :notification
+                                :xt/id          (UUID/randomUUID)
+                                :notif/type     :success
+                                :notif/title    title
+                                :notif/body     notif-body
+                                :notif/link     (str "/article/" id)
+                                :notif/read     false
+                                :notif/created-at (now)}]))
         (search/index-doc sys (merge article {:article/status :ready} fields))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Polling helpers
 
 (defn- eligible-queued [db]
-  (->> (xt/q db '{:find  [(pull ?e [:xt/id :article/url :article/retry-count])]
+  (->> (xt/q db '{:find  [(pull ?e [:xt/id :article/url :article/kind :article/retry-count])]
                   :where [[?e :article/status :queued]]})
        (map first)))
 
 (defn- eligible-failed [db]
   (let [now-inst (now)]
-    (->> (xt/q db '{:find  [(pull ?e [:xt/id :article/url :article/retry-count
+    (->> (xt/q db '{:find  [(pull ?e [:xt/id :article/url :article/kind :article/retry-count
                                       :article/next-attempt-at])]
                     :where [[?e :article/status :failed]]})
          (map first)

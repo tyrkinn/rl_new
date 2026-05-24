@@ -66,7 +66,8 @@ html.dark #notif-drawer{background:#1c1c1c}
 .mob-search-fab{display:none;position:fixed;bottom:1.375rem;left:50%;transform:translateX(-50%);z-index:50;align-items:center;gap:.625rem;padding:.625rem 1.5rem;background:rgba(22,18,14,.86);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);border-radius:9999px;color:#F0EAE2;font-size:14px;font-weight:500;letter-spacing:.01em;box-shadow:0 8px 40px rgba(139,90,60,.28),0 2px 8px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.09);cursor:pointer;white-space:nowrap;transition:transform .15s ease,box-shadow .15s ease;-webkit-tap-highlight-color:transparent}
 .mob-search-fab:active{transform:translateX(-50%) scale(.96);box-shadow:0 4px 20px rgba(139,90,60,.2),0 1px 4px rgba(0,0,0,.15),inset 0 1px 0 rgba(255,255,255,.06)}
 @media(max-width:1023px){.mob-search-fab{display:flex}}
-html.dark .mob-search-fab{background:rgba(12,10,8,.9);border-color:rgba(255,255,255,.07);box-shadow:0 8px 40px rgba(139,90,60,.2),0 2px 8px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.06)}")
+html.dark .mob-search-fab{background:rgba(12,10,8,.9);border-color:rgba(255,255,255,.07);box-shadow:0 8px 40px rgba(139,90,60,.2),0 2px 8px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.06)}
+.kind-opt-radio:checked+.kind-opt-pill{border-color:transparent;color:#fff;background:var(--kc,#8B5A3C)}")
 
 (defn- head-html [title]
   (str "<head>"
@@ -139,6 +140,7 @@ html.dark .mob-search-fab{background:rgba(12,10,8,.9);border-color:rgba(255,255,
     (nav-item {:href "/"        :icon "sparkles"      :label "Today"   :active? (= active :today)})
     (nav-item {:href "/inbox"   :icon "inbox"         :label "Inbox"   :active? (= active :inbox)
                :badge-id "badge-inbox" :badge (when (pos? inbox-count) (str inbox-count))})
+    (nav-item {:href "/saved"   :icon "bookmark"      :label "Saved"   :active? (= active :saved)})
     (nav-item {:href "/week"    :icon "calendar-days" :label "Week"    :active? (= active :week)})
     (nav-item {:href "/tags"    :icon "tags"          :label "Tags"    :active? (= active :tags)})
     (nav-item {:href "/archive" :icon "archive"       :label "Archive" :active? (= active :archive)})
@@ -198,20 +200,41 @@ html.dark .mob-search-fab{background:rgba(12,10,8,.9);border-color:rgba(255,255,
      [:i {:data-lucide "plus" :class "icon-md"}]
      [:span {:class "hidden sm:inline"} "Add URL"]]]])
 
+(def ^:private kind-options
+  [{:value "auto"     :icon "sparkles"       :label "Auto"     :color "#8B5A3C"}
+   {:value "article"  :icon "newspaper"      :label "Article"  :color "#44403c"}
+   {:value "video"    :icon "play-circle"    :label "Video"    :color "#dc2626"}
+   {:value "bookmark" :icon "bookmark"       :label "Bookmark" :color "#2563eb"}
+   {:value "thread"   :icon "message-square" :label "Thread"   :color "#7c3aed"}
+   {:value "paper"    :icon "file-text"      :label "Paper"    :color "#059669"}])
+
 (def ^:private add-url-modal
   [:dialog {:id "add-url-modal" :class "modal"}
    [:div {:class "modal-box max-w-lg rounded-xl bg-white border border-stone-200"}
     [:h3 {:class "font-serif text-2xl mb-1"} "Add link"]
-    [:p {:class "text-sm text-stone-500 mb-5"} "Claude will enrich the article in the background."]
+    [:p {:class "text-sm text-stone-500 mb-5"} "Claude will enrich it in the background."]
     [:form {:hx-post "/api/add"
             :hx-target "#add-url-result"
             :hx-swap "innerHTML"
-            :hx-on--after-request "if(event.detail.successful) this.reset()"}
-     [:div {:class "join w-full"}
-      [:input {:name "url" :type "url" :placeholder "https://..." :required true
-               :class "input join-item input-bordered w-full bg-stone-100"}]
-      [:button {:class "btn join-item border-none text-white" :style {:background "#8B5A3C"}} "Add"]]]
-    [:div {:id "add-url-result" :class "mt-3 text-sm"}]
+            :hx-on--after-request "if(event.detail.successful){this.reset();document.getElementById('add-url-modal').close();}"}
+     [:div {:class "mb-4"}
+      [:input {:id "add-url-input" :name "url" :type "url" :placeholder "https://…" :required true
+               :autofocus true
+               :class "input input-bordered w-full bg-stone-50 focus:bg-white"
+               :oninput "detectAddKind(this.value)"}]]
+     [:div {:class "mb-4"}
+      [:p {:class "text-xs font-medium text-stone-500 mb-2"} "Content type"]
+      [:div {:class "flex gap-1.5 flex-wrap"}
+       (for [{:keys [value icon label color]} kind-options]
+         [:label {:class "kind-opt-label cursor-pointer"}
+          [:input {:type "radio" :name "kind" :value value :class "sr-only kind-opt-radio"
+                   :checked (= value "auto")}]
+          [:span {:class "kind-opt-pill flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-stone-200 text-xs font-medium text-stone-600 hover:border-stone-300 transition-all select-none"
+                  :data-color color}
+           [:i {:data-lucide icon :style {:width "13px" :height "13px" :flex-shrink "0"}}]
+           label]])]]
+     [:button {:class "btn w-full border-none text-white" :style {:background "#8B5A3C"}} "Save"]]
+    [:div {:id "add-url-result" :class "mt-3 text-sm min-h-5"}]
     [:div {:class "modal-action mt-2"}
      [:form {:method "dialog"}
       [:button {:class "btn btn-ghost btn-sm"} "Close"]]]]
@@ -390,6 +413,29 @@ lucide.createIcons();
 if(window._afterSettleH)document.removeEventListener('htmx:afterSettle',window._afterSettleH);
 window._afterSettleH=function(){lucide.createIcons();var inp=document.getElementById('cmd-input');if(inp)inp.addEventListener('input',function(){cmdSearch(this.value.trim());});};
 document.addEventListener('htmx:afterSettle',window._afterSettleH);
+(function(){
+  function detectKindFromUrl(url){
+    var u=url.toLowerCase();
+    if(u.includes('youtube.com/watch')||u.includes('youtu.be/')||u.includes('vimeo.com/')&&!u.includes('vimeo.com/user')||u.includes('twitch.tv/videos')||u.includes('dailymotion.com/video'))return 'video';
+    if(u.includes('arxiv.org/')||u.includes('doi.org/')||u.includes('researchgate.net/publication')||u.includes('semanticscholar.org/paper')||u.includes('ncbi.nlm.nih.gov/pmc'))return 'paper';
+    if((u.includes('twitter.com/')&&u.includes('/status/'))||(u.includes('x.com/')&&u.includes('/status/'))||(u.includes('reddit.com/r/')&&u.includes('/comments/'))||u.includes('news.ycombinator.com/item')||u.includes('lobste.rs/s/'))return 'thread';
+    return null;
+  }
+  window.detectAddKind=function(url){
+    var detected=detectKindFromUrl(url);
+    var target=detected||'auto';
+    var radios=document.querySelectorAll('.kind-opt-radio');
+    radios.forEach(function(r){if(r.value===target)r.checked=true;});
+  };
+  document.addEventListener('htmx:afterSettle',function(){
+    document.querySelectorAll('.kind-opt-pill').forEach(function(p){
+      p.style.setProperty('--kc',p.dataset.color);
+    });
+  });
+  document.querySelectorAll('.kind-opt-pill').forEach(function(p){
+    p.style.setProperty('--kc',p.dataset.color);
+  });
+})();
 </script>"
         "</body></html>")})
 

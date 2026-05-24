@@ -4,6 +4,7 @@
             [com.readlater.ui :as ui]
             [com.readlater.url :as url]
             [com.readlater.search :as search]
+            [com.readlater.worker :as worker]
             [com.biffweb :as biff]
             [rum.core :as rum]
             [xtdb.api :as xt]
@@ -11,15 +12,15 @@
   (:import [java.util UUID]))
 
 (defn inbox-page [{:keys [biff/db]}]
-  (let [articles (db/inbox-articles db)]
+  (let [items (db/inbox-articles db)]
     (ui/page (merge (db/base-page-opts db) {:active :inbox :title "Inbox" :crumbs "Inbox"})
              [:div {:class "px-4 sm:px-6 lg:px-10 py-6 sm:py-8 max-w-3xl mx-auto w-full"}
               [:h1 {:class "serif-h1 text-3xl sm:text-4xl mb-2"} "Inbox"]
-              [:p {:class "text-sm text-stone-500 mb-6"} "Articles awaiting review."]
-              (if (empty? articles)
-                [:p {:class "text-sm text-stone-400 mt-10 text-center"} "No articles yet — add a URL to get started."]
+              [:p {:class "text-sm text-stone-500 mb-6"} "Articles and videos to read or watch."]
+              (if (empty? items)
+                [:p {:class "text-sm text-stone-400 mt-10 text-center"} "No items yet — add a URL to get started."]
                 [:div {:class "space-y-3"}
-                 (map c/article-card articles)])])))
+                 (map c/link-card items)])])))
 
 ;; Folder chip selector — rendered server-side and swapped via htmx
 (defn folder-chips [article-id current-folder-id folders]
@@ -177,20 +178,29 @@
                     [:a {:href (str "/article/" (:xt/id existing)) :class "underline"} "open"]])
 
       :else
-      (let [id (UUID/randomUUID)]
+      (let [id         (UUID/randomUUID)
+            kind-param (some-> (or (:kind params) (get params "kind")) keyword)
+            kind       (or (when (#{:article :video :bookmark :thread :paper} kind-param) kind-param)
+                           (worker/detect-kind u)
+                           :article)
+            kind-label (case kind
+                         :video "Video" :bookmark "Bookmark"
+                         :thread "Thread" :paper "Paper" "Article")]
         (biff/submit-tx ctx [{:db/doc-type            :article
                               :xt/id                  id
                               :article/url            u
                               :article/url-normalized norm
                               :article/source         src
+                              :article/kind           kind
                               :article/status         :queued
                               :article/added-at       (db/now)
                               :article/retry-count    0}])
         {:status  200
-         :headers {"content-type"  "text/html; charset=UTF-8"
-                   "HX-Trigger"    "{\"showToast\":{\"type\":\"info\",\"title\":\"Link saved\",\"body\":\"Enriching in the background\\u2026\"}}"}
+         :headers {"content-type" "text/html; charset=UTF-8"
+                   "HX-Trigger"   (str "{\"showToast\":{\"type\":\"info\",\"title\":\""
+                                       kind-label " saved\",\"body\":\"Enriching in the background…\"}}")}
          :body    (rum/render-static-markup
-                   [:p {:class "text-emerald-600"} "Saved! Article will appear in Inbox shortly."])}))))
+                   [:p {:class "text-emerald-600"} "Saved! Will appear in Inbox shortly."])}))))
 
 (defn list-articles [_ctx] {:status 200 :body []})
 (defn get-article   [_ctx] {:status 501 :body {:error "not implemented"}})
