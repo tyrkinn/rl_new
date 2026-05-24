@@ -264,3 +264,44 @@
           :title "Open original"
           :class "opacity-0 group-hover:opacity-100 btn btn-xs btn-ghost text-stone-400 px-1 shrink-0 transition-opacity"}
       [:i {:data-lucide "external-link" :class "icon-sm"}]]]))
+
+;; ---------------------------------------------------------------------------
+;; External discovery components (HN / Lobsters — not saved to library)
+
+(defn external-item-row [{:keys [url title blurb]}]
+  [:div {:class "flex items-start gap-3 py-2.5"}
+   [:div {:class "flex-1 min-w-0"}
+    [:a {:href   url
+         :target "_blank"
+         :rel    "noopener noreferrer"
+         :class  "text-[13px] font-medium leading-snug hover:underline text-stone-800 line-clamp-2"}
+     title]
+    (when (seq blurb)
+      [:p {:class "text-xs text-stone-400 italic mt-0.5 line-clamp-1"} blurb])]
+   [:div {:class "shrink-0"}
+    [:button {:class               "btn btn-xs btn-ghost text-stone-400 hover:text-emerald-600 px-1.5"
+              :title               "Add to inbox"
+              :hx-post             "/api/add"
+              :hx-vals             (str "{\"url\":\"" url "\",\"kind\":\"article\"}")
+              :hx-swap             "none"
+              :hx-on--after-request "if(event.detail.successful){this.outerHTML='<span class=\"text-emerald-500 text-xs font-medium px-1.5\">✓</span>'}"}
+     [:i {:data-lucide "plus" :class "icon-sm"}]]]])
+
+(defn- source-badge [source-label]
+  (case source-label
+    "HackerNews" [:span {:class "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-orange-50 text-orange-600 border border-orange-200"}
+                  "HN"]
+    "Lobsters"   [:span {:class "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-red-50 text-red-700 border border-red-200"}
+                  "Lobsters"]
+    [:span {:class "chip chip-mono text-[10px]"} source-label]))
+
+(defn external-collection-card [{:keys [theme vibe items source-label]}]
+  [:div {:class "card-art p-6 flex flex-col w-72 md:w-80 shrink-0 snap-start"}
+   [:div {:class "flex items-center justify-between mb-3"}
+    (source-badge source-label)
+    (when (seq vibe)
+      [:span {:class "chip self-start"} vibe])]
+   [:h2 {:class "font-serif text-xl font-semibold leading-snug mb-3"} (or theme "Top Stories")]
+   [:div {:class "mt-1 pt-3 border-t border-stone-100 divide-y divide-stone-100"}
+    (for [item items]
+      (external-item-row item))]])

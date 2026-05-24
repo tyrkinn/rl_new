@@ -51,7 +51,8 @@
     [:rec/date            :string]
     [:rec/generated-at    inst?]
     [:rec/prompt-snapshot :string]
-    [:rec/collections     [:vector :any]]]
+    [:rec/collections     [:vector :any]]
+    [:rec/external-collections {:optional true} [:maybe [:vector :any]]]]
 
    :syn/id :uuid
    :syn

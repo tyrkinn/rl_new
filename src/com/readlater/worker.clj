@@ -7,7 +7,8 @@
             [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.tools.logging :as log])
+            [clojure.tools.logging :as log]
+            [hato.client :as hc])
   (:import [java.util UUID]
            [java.time Instant LocalDate ZoneOffset]))
 
@@ -372,6 +373,64 @@
       (slurp r)
       (throw (ex-info "resources/prompts/recommend.md not found" {})))))
 
+(def ^:private theme-external-prompt-template
+  (delay
+    (if-let [r (io/resource "prompts/theme-external.md")]
+      (slurp r)
+      (throw (ex-info "resources/prompts/theme-external.md not found" {})))))
+
+;; ---------------------------------------------------------------------------
+;; External source fetchers
+
+(defn- fetch-hn-top []
+  (try
+    (let [resp (hc/get "https://hn.algolia.com/api/v1/search"
+                       {:query-params {"tags"          "story"
+                                       "hitsPerPage"   "30"
+                                       "numericFilters" "points>50"}
+                        :as           :json})
+          hits (get-in resp [:body :hits])]
+      (->> hits
+           (filter #(seq (:url %)))
+           (mapv #(hash-map :title  (or (:title %) "")
+                            :url    (:url %)
+                            :points (or (:points %) 0)
+                            :author (or (:author %) "")))))
+    (catch Exception e
+      (log/warn "fetch-hn-top failed:" (.getMessage e))
+      nil)))
+
+(defn- fetch-lobsters-top []
+  (try
+    (let [resp (hc/get "https://lobste.rs/hottest.json"
+                       {:as :json})
+          stories (:body resp)]
+      (->> stories
+           (take 20)
+           (mapv #(hash-map :title (or (:title %) "")
+                            :url   (or (:url %) "")
+                            :score (or (:score %) 0)
+                            :tags  (vec (or (:tags %) []))))))
+    (catch Exception e
+      (log/warn "fetch-lobsters-top failed:" (.getMessage e))
+      nil)))
+
+(defn- theme-group-external [items source-label]
+  (when (seq items)
+    (try
+      (let [prompt (-> @theme-external-prompt-template
+                       (str/replace "<SOURCE>"      source-label)
+                       (str/replace "<STORIES_JSON>" (json/generate-string items)))
+            {:keys [ok? data error]} (llm/invoke prompt {})]
+        (if ok?
+          (assoc data :source-label source-label)
+          (do
+            (log/warn "theme-group-external failed for" source-label ":" error)
+            nil)))
+      (catch Exception e
+        (log/warn "theme-group-external exception for" source-label ":" (.getMessage e))
+        nil))))
+
 (defn today-batch
   "Returns today's recommendation-batch document or nil."
   [db]
@@ -434,19 +493,43 @@
           (reset! generation-state {:status :idle}))
       (let [recent  (recent-rec-ids db)
             prompt  (build-rec-prompt articles recent nil)
+            ;; Start external fetches in parallel while Claude works on library
+            hn-future      (future (fetch-hn-top))
+            lobsters-future (future (fetch-lobsters-top))
             {:keys [ok? data error]} (llm/invoke prompt {})]
         (if-not ok?
           (do (log/warn "recommend: claude failed:" error)
               (reset! generation-state {:status :error :error error}))
-          (let [collections (mapv map-collection (get data :collections []))
-                batch-id    (UUID/randomUUID)]
-            (biff/submit-tx sys [{:db/doc-type         :rec
-                                  :xt/id               batch-id
-                                  :rec/date            (.toString (LocalDate/now))
-                                  :rec/generated-at    (now)
-                                  :rec/prompt-snapshot prompt
-                                  :rec/collections     collections}])
-            (log/info "recommend: saved" (count collections) "collections for" (.toString (LocalDate/now)))
+          (let [;; Library collections — take only the first one
+                collections      (vec (take 1 (mapv map-collection (get data :collections []))))
+                ;; Deref external fetches
+                hn-items         (try @hn-future
+                                   (catch Exception e
+                                     (log/warn "recommend: hn fetch exception:" (.getMessage e))
+                                     nil))
+                lobsters-items   (try @lobsters-future
+                                   (catch Exception e
+                                     (log/warn "recommend: lobsters fetch exception:" (.getMessage e))
+                                     nil))
+                ;; Theme-group external sources
+                hn-collection      (when (seq hn-items)
+                                     (theme-group-external hn-items "HackerNews"))
+                lobsters-collection (when (seq lobsters-items)
+                                      (theme-group-external lobsters-items "Lobsters"))
+                external-cols    (vec (remove nil? [hn-collection lobsters-collection]))
+                batch-id         (UUID/randomUUID)
+                tx-doc           (cond-> {:db/doc-type         :rec
+                                          :xt/id               batch-id
+                                          :rec/date            (.toString (LocalDate/now))
+                                          :rec/generated-at    (now)
+                                          :rec/prompt-snapshot prompt
+                                          :rec/collections     collections}
+                                   (seq external-cols)
+                                   (assoc :rec/external-collections external-cols))]
+            (biff/submit-tx sys [tx-doc])
+            (log/info "recommend: saved" (count collections) "library collection(s) and"
+                      (count external-cols) "external collection(s) for"
+                      (.toString (LocalDate/now)))
             (reset! generation-state {:status :idle})))))))
 
 (defn start-generation-if-needed!

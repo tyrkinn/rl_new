@@ -128,11 +128,15 @@ html.dark #cmd-input{color:#E7E2D6 !important;caret-color:#E7E2D6}
 html.dark kbd{background:#252525 !important;border-color:#333 !important;color:#A89880 !important}
 html.dark #cmd-search-box>div:first-child{border-bottom-color:#2a2a2a !important}")
 
+(def ^:private theme-init-js
+  "var s=localStorage.getItem('theme');if(s==='dark'||(s==null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}")
+
 (defn- head-html [title]
   (str "<head>"
        "<meta charset='UTF-8'>"
        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
        "<title>Readlater — " title "</title>"
+       "<script>" theme-init-js "</script>"
        "<link rel='preconnect' href='https://fonts.googleapis.com'>"
        "<link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>"
        "<link rel='stylesheet' href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500&display=swap'>"
@@ -252,7 +256,7 @@ html.dark #cmd-search-box>div:first-child{border-bottom-color:#2a2a2a !important
              :class (str "notif-bell-badge" (when-not (pos? (or notif-count 0)) " hidden"))}
       (when (pos? (or notif-count 0)) (str notif-count))]]
     [:button {:class "btn btn-sm btn-ghost btn-square"
-              :onclick "document.documentElement.classList.toggle('dark')"}
+              :onclick "var d=document.documentElement;d.classList.toggle('dark');localStorage.setItem('theme',d.classList.contains('dark')?'dark':'light')"}
      [:i {:data-lucide "sun-moon" :class "icon-md"}]]
     [:button {:class "btn btn-sm border-none text-white gap-1.5"
               :style {:background "#8B5A3C"}

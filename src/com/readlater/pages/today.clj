@@ -42,15 +42,31 @@
         state @worker/generation-state]
     (cond
       batch
-      (let [all-ids    (->> (:rec/collections batch)
-                            (mapcat :collection/items)
-                            (map :item/article-id)
-                            distinct)
-            arts-by-id (articles-by-ids db all-ids)]
+      (let [all-ids      (->> (:rec/collections batch)
+                              (mapcat :collection/items)
+                              (map :item/article-id)
+                              distinct)
+            arts-by-id   (articles-by-ids db all-ids)
+            external-cols (seq (:rec/external-collections batch))]
         [:div {:id "rec-section"}
-         [:div {:class "flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory px-4 sm:px-6 lg:px-10"}
-          (for [col (:rec/collections batch)]
-            (collection-card col arts-by-id))]])
+         ;; Library collection section
+         (when (seq (:rec/collections batch))
+           [:<>
+            [:h3 {:class "px-4 sm:px-6 lg:px-10 text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2"}
+             [:i {:data-lucide "library" :class "icon-sm"}]
+             "From Your Library"]
+            [:div {:class "flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory px-4 sm:px-6 lg:px-10 mb-6"}
+             (for [col (:rec/collections batch)]
+               (collection-card col arts-by-id))]])
+         ;; External discovery sections (HN + Lobsters)
+         (when external-cols
+           [:<>
+            [:h3 {:class "px-4 sm:px-6 lg:px-10 text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2 mt-2"}
+             [:i {:data-lucide "globe" :class "icon-sm"}]
+             "Discover"]
+            [:div {:class "flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory px-4 sm:px-6 lg:px-10"}
+             (for [ext external-cols]
+               (c/external-collection-card ext))]])])
 
       (= :running (:status state))
       [:div {:id         "rec-section"
@@ -78,8 +94,11 @@
                [:h1 {:class "serif-h1 text-3xl sm:text-4xl mb-1"} (today-date-str)]
                [:p {:class "text-sm text-stone-400"}
                 (if batch
-                  (let [n (count (:rec/collections batch))]
-                    (str n (if (= n 1) " collection" " collections") " for today"))
+                  (let [lib-n (count (:rec/collections batch))
+                        ext-n (count (:rec/external-collections batch))]
+                    (str lib-n (if (= lib-n 1) " library collection" " library collections")
+                         (when (pos? ext-n)
+                           (str " · " ext-n " discovery " (if (= ext-n 1) "section" "sections")))))
                   "Generating today's picks…")]]
               [:section {:class "mb-10"}
                [:h2 {:class "px-4 sm:px-6 lg:px-10 max-w-3xl mx-auto w-full text-xs font-semibold uppercase tracking-wider text-stone-400 mb-4 flex items-center gap-2"}
