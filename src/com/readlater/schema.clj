@@ -22,9 +22,20 @@
     [:article/reading-time-min {:optional true} [:maybe :int]]
     [:article/quality-score    {:optional true} [:maybe :int]]
     [:article/keywords      {:optional true} [:maybe [:vector :string]]]
+    [:article/kind          {:optional true} [:maybe [:enum :article :video :bookmark :thread :paper]]]
+    [:article/folder-id     {:optional true} [:maybe :uuid]]
+    [:article/channel       {:optional true} [:maybe :string]]
+    [:article/platform      {:optional true} [:maybe :string]]
+    [:article/duration-min  {:optional true} [:maybe :int]]
+    [:article/category      {:optional true} [:maybe :string]]
+    [:article/author-handle {:optional true} [:maybe :string]]
+    [:article/key-findings  {:optional true} [:maybe [:vector :string]]]
+    [:article/paper-authors {:optional true} [:maybe [:vector :string]]]
+    [:article/field         {:optional true} [:maybe :string]]
     [:article/synonyms      {:optional true} [:maybe [:vector :string]]]
     [:article/comments      {:optional true} [:maybe [:vector [:map [:text :string] [:created-at inst?]]]]]
     [:article/added-at      inst?]
+    [:article/enriched-at  {:optional true} [:maybe inst?]]
     [:article/read-at       {:optional true} [:maybe inst?]]
     [:article/archived-at   {:optional true} [:maybe inst?]]
     [:article/deleted-at    {:optional true} [:maybe inst?]]
@@ -51,6 +62,25 @@
     [:syn/dictionary          [:map-of :string [:vector :string]]]
     [:syn/articles-considered :int]
     [:syn/dictionary-size     :int]]
+
+   :folder/id :uuid
+   :folder
+   [:map {:closed true}
+    [:xt/id             :folder/id]
+    [:folder/name       :string]
+    [:folder/color      :string]
+    [:folder/created-at inst?]]
+
+   :notif/id :uuid
+   :notification
+   [:map {:closed true}
+    [:xt/id           :notif/id]
+    [:notif/type      [:enum :success :error :info :warning]]
+    [:notif/title     :string]
+    [:notif/body      {:optional true} [:maybe :string]]
+    [:notif/link      {:optional true} [:maybe :string]]
+    [:notif/read      :boolean]
+    [:notif/created-at inst?]]
 
    :settings/id :keyword
    :settings

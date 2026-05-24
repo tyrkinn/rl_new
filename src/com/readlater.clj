@@ -61,6 +61,7 @@
   [biff/use-aero-config
    biff/use-xtdb
    worker/use-pending-drain
+   worker/use-kind-migration
    worker/use-enrich-worker
    search/use-meili-index
    biff/use-queues
