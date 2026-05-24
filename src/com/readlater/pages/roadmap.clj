@@ -6,9 +6,18 @@
 ;; Changelog data
 
 (def ^:private changelog
-  [{:version "0.5"
+  [{:version "0.6"
     :date     "Май 2026"
     :label    "current"
+    :items    ["Saved: поиск по Meilisearch с дебаунсом + фильтр по типу (Bookmarks / Threads / Papers)"
+               "Discover: редизайн в editorial bento-сетку — цветовая идентичность источника, компактные строки"
+               "Discover на мобильном: кнопка «+» всегда видна на тач-устройствах, правильный hover в тёмной теме"
+               "Кнопка «Копировать ссылку» на всех карточках inbox, saved и в строках списка"
+               "Статья: кнопка «Mark read» меняется на «Move to unread» если статья уже прочитана"
+               "Оба действия (read/unread) сразу обновляют индекс Meilisearch"
+               "Архив: фильтрация по status=:read вместо наличия read-at — unread-toggle работает корректно"]}
+   {:version "0.5"
+    :date     "Май 2026"
     :items    ["Страница Today: персональные подборки из библиотеки + внешние источники"
                "Discover: HackerNews, Lobsters, Dev.to, Reddit — тематические коллекции через AI"
                "Trending Repos: карточка с трендовыми GitHub-репозиториями"
