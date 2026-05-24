@@ -142,7 +142,15 @@
           (do (log/warn "enrich: max retries reached, marking :failed:" url)
               (biff/submit-tx sys [{:db/op :update :db/doc-type :article
                                     :xt/id id :article/status :failed
-                                    :article/error error :article/retry-count n}]))
+                                    :article/error error :article/retry-count n}])
+              (biff/submit-tx sys [{:db/doc-type    :notification
+                                    :xt/id          (UUID/randomUUID)
+                                    :notif/type     :error
+                                    :notif/title    (or (:article/title article) url)
+                                    :notif/body     (str "Enrichment failed after " n " attempts")
+                                    :notif/link     (str "/article/" id)
+                                    :notif/read     false
+                                    :notif/created-at (now)}]))
           (biff/submit-tx sys [{:db/op :update :db/doc-type :article
                                 :xt/id id :article/status :failed
                                 :article/error error :article/retry-count n
@@ -160,11 +168,21 @@
 
       ;; Success — map fields and mark :ready
       :else
-      (let [fields (map-claude-fields data)]
+      (let [fields (map-claude-fields data)
+            title  (or (:article/title fields) (:article/title article) url)]
         (log/info "enrich: ready" url (str "(tags:" (str/join "," (:article/tags fields)) ")"))
         (biff/submit-tx sys [(merge {:db/op :update :db/doc-type :article
-                                     :xt/id id :article/status :ready}
+                                     :xt/id id :article/status :ready
+                                     :article/enriched-at (now)}
                                     fields)])
+        (biff/submit-tx sys [{:db/doc-type    :notification
+                              :xt/id          (UUID/randomUUID)
+                              :notif/type     :success
+                              :notif/title    title
+                              :notif/body     "Article enriched and ready to read"
+                              :notif/link     (str "/article/" id)
+                              :notif/read     false
+                              :notif/created-at (now)}])
         (search/index-doc sys (merge article {:article/status :ready} fields))))))
 
 ;; ---------------------------------------------------------------------------

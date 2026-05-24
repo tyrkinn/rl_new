@@ -46,25 +46,39 @@
 ;; ---------------------------------------------------------------------------
 ;; Article document
 
+(defn- camel-split
+  "Split CamelCase/PascalCase compound words: 'AppSignal' → ['app' 'signal']"
+  [^String s]
+  (when (string? s)
+    (->> (-> s
+             (str/replace #"([a-z\d])([A-Z])" "$1 $2")
+             (str/replace #"([A-Z]+)([A-Z][a-z])" "$1 $2")
+             (str/split #"[\s\-_./:]+"))
+         (map str/lower-case)
+         (filter #(> (count %) 2))
+         distinct)))
+
 (defn- article->doc [{:keys [xt/id article/title article/byline article/url
                               article/url-normalized article/tags article/topic
                               article/tldr article/why-interesting article/keywords
                               article/status article/reading-time-min article/quality-score
                               article/lang article/added-at]}]
-  (cond-> {:id     (str id)
-           :url    (or url "")
-           :status (name (or status :ready))}
-    title            (assoc :title title)
-    byline           (assoc :byline byline)
-    (seq tags)       (assoc :tags (vec tags))
-    topic            (assoc :topic topic)
-    (seq tldr)       (assoc :tldr (str/join " " tldr))
-    why-interesting  (assoc :why_interesting why-interesting)
-    (seq keywords)   (assoc :keywords (vec keywords))
-    reading-time-min (assoc :reading_time_min reading-time-min)
-    quality-score    (assoc :quality_score quality-score)
-    lang             (assoc :lang lang)
-    added-at         (assoc :added_at (.toEpochMilli added-at))))
+  (let [title-tokens (camel-split title)
+        merged-kw    (vec (distinct (concat (or keywords []) title-tokens)))]
+    (cond-> {:id     (str id)
+             :url    (or url "")
+             :status (name (or status :ready))}
+      title            (assoc :title title)
+      byline           (assoc :byline byline)
+      (seq tags)       (assoc :tags (vec tags))
+      topic            (assoc :topic topic)
+      (seq tldr)       (assoc :tldr (str/join " " tldr))
+      why-interesting  (assoc :why_interesting why-interesting)
+      (seq merged-kw)  (assoc :keywords merged-kw)
+      reading-time-min (assoc :reading_time_min reading-time-min)
+      quality-score    (assoc :quality_score quality-score)
+      lang             (assoc :lang lang)
+      added-at         (assoc :added_at (.toEpochMilli added-at)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Public API
