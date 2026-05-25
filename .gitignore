@@ -23,3 +23,6 @@
 # Markdown files
 *.md
 !README.md
+!CLAUDE.md
+!CONTEXT.md
+!docs/**/*.md
