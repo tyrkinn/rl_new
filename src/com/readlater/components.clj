@@ -4,6 +4,16 @@
   (:import [java.time ZoneOffset]
            [java.time.format DateTimeFormatter]))
 
+(defn- domain-hsl [url]
+  (try
+    (let [host (-> (java.net.URI. url) .getHost (str/replace #"^www\." ""))
+          hv   (Math/abs (int (.hashCode host)))
+          hue  (mod hv 360)
+          sat  (+ 45 (mod (quot hv 360) 20))
+          lig  (+ 48 (mod (quot hv 7200) 12))]
+      (str "hsl(" hue "," sat "%," lig "%)"))
+    (catch Exception _ "#C9A87C")))
+
 (defn html-frag [hiccup]
   {:status  200
    :headers {"content-type" "text/html; charset=UTF-8"}
@@ -46,7 +56,7 @@
                             article/tldr article/tags article/reading-time-min]}]
   (let [pending?      (#{:queued :enriching} status)
         display-title (or title url)]
-    [:div {:class "card-art p-5"}
+    [:div {:class "card-art p-5" :style {:border-left (str "3px solid " (domain-hsl url))}}
      [:div {:class "flex items-start justify-between gap-3"}
       [:div {:class "flex-1 min-w-0"}
        [:a {:href  (str "/article/" id)
@@ -94,7 +104,7 @@
                           article/tldr article/tags article/channel
                           article/platform article/duration-min]}]
   (let [pending? (#{:queued :enriching} status)]
-    [:div {:class "card-art overflow-hidden"}
+    [:div {:class "card-art overflow-hidden" :style {:border-left (str "3px solid " (domain-hsl url))}}
      [:div {:class "flex items-center gap-2 px-5 pt-4 pb-3 border-b border-stone-100"}
       [:div {:class "w-8 h-8 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center flex-shrink-0"}
        [:i {:data-lucide "play-circle" :class "text-red-500" :style {:width "18px" :height "18px"}}]]
@@ -134,7 +144,7 @@
                              article/why-interesting article/tags article/category article/platform]}]
   (let [domain (try (-> (java.net.URI. url) .getHost (str/replace #"^www\." ""))
                     (catch Exception _ url))]
-    [:div {:class "card-art p-5"}
+    [:div {:class "card-art p-5" :style {:border-left (str "3px solid " (domain-hsl url))}}
      [:div {:class "flex items-start justify-between gap-3"}
       [:div {:class "flex-1 min-w-0"}
        [:div {:class "flex items-center gap-2 mb-1 flex-wrap"}
@@ -166,7 +176,7 @@
 
 (defn thread-card [{:keys [xt/id article/title article/url article/status
                            article/tldr article/tags article/platform article/author-handle]}]
-  [:div {:class "card-art p-5"}
+  [:div {:class "card-art p-5" :style {:border-left (str "3px solid " (domain-hsl url))}}
    [:div {:class "flex items-start justify-between gap-3 mb-3"}
     [:div {:class "flex items-center gap-2 flex-wrap"}
      [:div {:class "w-6 h-6 rounded bg-purple-50 border border-purple-100 flex items-center justify-center flex-shrink-0"}
@@ -197,7 +207,7 @@
 (defn paper-card [{:keys [xt/id article/title article/url article/status
                           article/why-interesting article/tags article/field
                           article/paper-authors article/key-findings]}]
-  [:div {:class "card-art p-5"}
+  [:div {:class "card-art p-5" :style {:border-left (str "3px solid " (domain-hsl url))}}
    [:div {:class "flex items-start justify-between gap-3"}
     [:div {:class "flex-1 min-w-0"}
      [:div {:class "flex items-center gap-2 mb-1 flex-wrap"}
@@ -253,38 +263,48 @@
 (defn week-row [{:keys [xt/id article/title article/url article/status
                         article/tags article/reading-time-min article/kind]}]
   (let [row-id   (str "wr-" id)
-        article? (contains? #{nil :article} kind)]
-    [:div {:id    row-id
-           :class "group flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-stone-50 -mx-3 transition-colors"}
-     (week-status-dot status)
-     [:a {:href  (str "/article/" id)
-          :class "flex-1 min-w-0 font-serif text-[15px] leading-snug truncate hover:underline text-stone-800"}
-      (or title url)]
-     (when (seq tags)
-       [:div {:class "hidden sm:flex items-center gap-1 shrink-0"}
-        (for [tag (take 2 tags)]
-          [:span {:class "chip"} tag])])
-     (when reading-time-min
-       [:span {:class "chip chip-mono shrink-0"} (str reading-time-min "m")])
-     (when (and article? (not= status :read))
-       [:button {:class               "opacity-0 group-hover:opacity-100 btn btn-xs btn-ghost text-emerald-600 gap-1 shrink-0 transition-opacity"
-                 :title               "Mark as read"
-                 :hx-post             (str "/api/articles/" id "/read")
-                 :hx-swap             "none"
-                 :hx-on--after-request (str "var e=document.getElementById('" row-id "');"
-                                            "e.style.transition='opacity .25s';"
-                                            "e.style.opacity='0';"
-                                            "setTimeout(function(){e.remove()},260)")}
-        [:i {:data-lucide "check" :class "icon-sm"}]])
-     [:button {:class    "opacity-0 group-hover:opacity-100 btn btn-xs btn-ghost text-stone-400 px-1 shrink-0 transition-opacity"
-               :title    "Copy link"
-               :data-url url
-               :onclick  "navigator.clipboard.writeText(this.dataset.url);showToast({type:'success',title:'Link copied'})"}
-      [:i {:data-lucide "link" :class "icon-sm"}]]
-     [:a {:href  url :target "_blank" :rel "noopener noreferrer"
-          :title "Open original"
-          :class "opacity-0 group-hover:opacity-100 btn btn-xs btn-ghost text-stone-400 px-1 shrink-0 transition-opacity"}
-      [:i {:data-lucide "external-link" :class "icon-sm"}]]]))
+        article? (contains? #{nil :article} kind)
+        dc       (domain-hsl url)]
+    [:div {:class           "swipe-row -mx-3 rounded-lg overflow-hidden"
+           :data-read-url   (str "/api/articles/" id "/read")
+           :data-delete-url (str "/api/articles/" id)}
+     [:div {:class "swipe-bg swipe-bg-read"}
+      [:i {:data-lucide "check" :style {:width "16px" :height "16px"}}] " Read"]
+     [:div {:class "swipe-bg swipe-bg-delete"}
+      "Delete " [:i {:data-lucide "trash-2" :style {:width "16px" :height "16px"}}]]
+     [:div {:id    row-id
+            :class "swipe-inner group flex items-center gap-3 py-2 hover:bg-stone-50 transition-colors"
+            :style {:border-left (str "3px solid " dc) :padding-left "9px" :padding-right "12px"}}
+      (week-status-dot status)
+      [:a {:href  (str "/article/" id)
+           :class "flex-1 min-w-0 font-serif text-[15px] leading-snug truncate hover:underline text-stone-800"}
+       (or title url)]
+      (when (seq tags)
+        [:div {:class "hidden sm:flex items-center gap-1 shrink-0"}
+         (for [tag (take 2 tags)]
+           [:span {:class "chip"} tag])])
+      (when reading-time-min
+        [:span {:class "chip chip-mono shrink-0"} (str reading-time-min "m")])
+      (when (and article? (not= status :read))
+        [:button {:class               "opacity-0 group-hover:opacity-100 btn btn-xs btn-ghost text-emerald-600 gap-1 shrink-0 transition-opacity"
+                  :title               "Mark as read"
+                  :hx-post             (str "/api/articles/" id "/read")
+                  :hx-swap             "none"
+                  :hx-on--after-request (str "var e=document.getElementById('" row-id "');"
+                                             "var r=e.closest('.swipe-row')||e;"
+                                             "r.style.transition='opacity .25s';"
+                                             "r.style.opacity='0';"
+                                             "setTimeout(function(){r.remove()},260)")}
+         [:i {:data-lucide "check" :class "icon-sm"}]])
+      [:button {:class    "opacity-0 group-hover:opacity-100 btn btn-xs btn-ghost text-stone-400 px-1 shrink-0 transition-opacity"
+                :title    "Copy link"
+                :data-url url
+                :onclick  "navigator.clipboard.writeText(this.dataset.url);showToast({type:'success',title:'Link copied'})"}
+       [:i {:data-lucide "link" :class "icon-sm"}]]
+      [:a {:href  url :target "_blank" :rel "noopener noreferrer"
+           :title "Open original"
+           :class "opacity-0 group-hover:opacity-100 btn btn-xs btn-ghost text-stone-400 px-1 shrink-0 transition-opacity"}
+       [:i {:data-lucide "external-link" :class "icon-sm"}]]]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Discover cards — editorial bento grid style

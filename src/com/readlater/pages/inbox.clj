@@ -149,6 +149,7 @@
                          :title  (or title "Article")
                          :crumbs (str "Inbox / " (or title "Article"))})
                  [:div {:class "px-4 sm:px-6 lg:px-10 py-6 sm:py-8 max-w-5xl mx-auto w-full"}
+                  [:div {:class "scroll-progress"}]
                   (case status
                     :paywall        [:div {:class "mb-5 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm"} "This article is behind a paywall."]
                     :notfound       [:div {:class "mb-5 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm"} "Article not found (404)."]
