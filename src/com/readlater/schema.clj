@@ -44,7 +44,8 @@
     [:article/error         {:optional true} [:maybe :string]]
     [:article/error-reason  {:optional true} [:maybe [:enum :paywall :notfound :login-required :other]]]
     [:article/retry-count   :int]
-    [:article/next-attempt-at {:optional true} [:maybe inst?]]]
+    [:article/next-attempt-at {:optional true} [:maybe inst?]]
+    [:article/recommended-in  {:optional true} [:maybe [:vector :uuid]]]]
 
    :rec/id :uuid
    :rec

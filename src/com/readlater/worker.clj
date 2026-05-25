@@ -1,5 +1,6 @@
 (ns com.readlater.worker
   (:require [com.biffweb :as biff]
+            [com.readlater.db :as db]
             [com.readlater.url :as url]
             [com.readlater.llm :as llm]
             [com.readlater.search :as search]
@@ -527,12 +528,9 @@
         nil))))
 
 (defn today-batch
-  "Returns today's recommendation-batch document or nil."
-  [db]
-  (ffirst (xt/q db '{:find  [(pull ?e [*])]
-                     :in    [d]
-                     :where [[?e :rec/date d]]}
-                (.toString (LocalDate/now)))))
+  "Returns today's Recommendation batch document or nil. Delegates to db/today-batch."
+  [database]
+  (db/today-batch database))
 
 (defn- recs-articles [db]
   (->> (xt/q db '{:find  [(pull ?e [:xt/id :article/title :article/tldr :article/tags
@@ -645,6 +643,23 @@
             (log/info "recommend: saved" (count collections) "library,"
                       (count external-cols) "external collection(s) for"
                       (.toString (LocalDate/now)))
+            ;; Populate article/recommended-in backlinks for each library Entry
+            (let [lib-article-ids (->> collections
+                                       (mapcat :collection/items)
+                                       (map :item/article-id)
+                                       distinct)
+                  fresh-db (xt/db (:biff.xtdb/node sys))]
+              (doseq [aid lib-article-ids]
+                (let [current  (ffirst (xt/q fresh-db '{:find  [(pull ?e [:article/recommended-in])]
+                                                        :in    [id]
+                                                        :where [[?e :xt/id id]]}
+                                              aid))
+                      existing (or (:article/recommended-in current) [])]
+                  (when-not (some #{batch-id} existing)
+                    (biff/submit-tx sys [{:db/op                  :update
+                                          :db/doc-type            :article
+                                          :xt/id                  aid
+                                          :article/recommended-in (vec (distinct (conj existing batch-id)))}])))))
             (reset! generation-state {:status :idle})))))))
 
 (defn start-generation-if-needed!

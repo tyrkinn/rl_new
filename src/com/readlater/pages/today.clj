@@ -3,21 +3,15 @@
             [com.readlater.components :as c]
             [com.readlater.ui :as ui]
             [com.readlater.worker :as worker]
-            [rum.core :as rum]
-            [xtdb.api :as xt]))
+            [rum.core :as rum])
+  (:import [java.time ZoneOffset LocalDate]))
 
 (defn- today-date-str []
   (.format (java.time.LocalDate/now)
            (java.time.format.DateTimeFormatter/ofPattern "EEEE, d MMMM")))
 
 (defn- articles-by-ids [db ids]
-  (->> ids
-       (keep #(ffirst (xt/q db '{:find  [(pull ?e [:xt/id :article/title :article/url])]
-                                 :in    [id]
-                                 :where [[?e :xt/id id]]}
-                            %)))
-       (map (juxt :xt/id identity))
-       (into {})))
+  (db/articles-by-ids db ids))
 
 (defn- collection-card
   [{:keys [collection/title collection/description collection/vibe collection/items]}
@@ -180,13 +174,18 @@
                           (when (pos? ext-n)
                             (str " · " ext-n " discovery " (if (= ext-n 1) "section" "sections")))))
                    "Generating today's picks…")]]
-               [:button {:class               "btn btn-sm btn-ghost text-stone-400 gap-1.5 shrink-0 mt-1"
-                         :title               "Regenerate"
-                         :hx-post             "/api/recommendations/regenerate"
-                         :hx-swap             "none"
-                         :hx-on--after-request "window.location.reload()"}
-                [:i {:data-lucide "refresh-cw" :class "icon-sm"}]
-                [:span {:class "hidden sm:inline text-xs"} "Regenerate"]]]
+               [:div {:class "flex items-center gap-1"}
+                [:a {:href  "/today/history"
+                     :class "btn btn-sm btn-ghost text-stone-400 gap-1.5 shrink-0 mt-1"}
+                 [:i {:data-lucide "clock" :class "icon-sm"}]
+                 [:span {:class "hidden sm:inline text-xs"} "History"]]
+                [:button {:class               "btn btn-sm btn-ghost text-stone-400 gap-1.5 shrink-0 mt-1"
+                          :title               "Regenerate"
+                          :hx-post             "/api/recommendations/regenerate"
+                          :hx-swap             "none"
+                          :hx-on--after-request "window.location.reload()"}
+                 [:i {:data-lucide "refresh-cw" :class "icon-sm"}]
+                 [:span {:class "hidden sm:inline text-xs"} "Regenerate"]]]]
               [:section {:class "mb-10"}
                [:h2 {:class "px-4 sm:px-6 lg:px-10 text-xs font-semibold uppercase tracking-wider text-stone-400 mb-4 flex items-center gap-2"}
                 [:i {:data-lucide "sparkles" :class "icon-sm"}]
@@ -196,10 +195,151 @@
               (when (seq fresh-all)
                 (fresh-inbox-section fresh-all inbox-n quick-reads? qr-count max-min))]))))
 
+;; ---------------------------------------------------------------------------
+;; Today History page — Recommendation timeline with CTR per day
+
+(defn- ctr-heatmap
+  "Renders a 26-week CTR heatmap for the Recommendation history page.
+   batches-with-ctr: seq of Rec batch maps annotated with :ctr, :ctr-read-count, :ctr-total-count"
+  [batches-with-ctr]
+  (let [zone    ZoneOffset/UTC
+        today   (LocalDate/now zone)
+        start   (.minusDays today 181)
+        by-date (into {} (map (fn [b]
+                                [(LocalDate/parse (:rec/date b)) b])
+                              batches-with-ctr))
+        dow     (.getValue (.getDayOfWeek start))
+        g-start (.minusDays start (dec dow))
+        all-days (take 196 (iterate #(.plusDays % 1) g-start))
+        weeks   (partition 7 7 nil all-days)]
+    [:div {:class "mb-10"}
+     [:h2 {:class "text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2"}
+      [:i {:data-lucide "bar-chart-2" :class "icon-sm"}]
+      "Recommendation CTR · last 6 months"]
+     [:div {:class "heat-grid"}
+      (for [week weeks]
+        [:div {:class "heat-week"}
+         (for [day week]
+           (let [valid?  (and day
+                              (not (.isBefore day start))
+                              (not (.isAfter day today)))
+                 batch   (when valid? (get by-date day))
+                 ctr     (:ctr batch)
+                 read-n  (:ctr-read-count batch 0)
+                 total-n (:ctr-total-count batch 0)
+                 level   (cond
+                           (not valid?)   "x"
+                           (nil? batch)   "x"
+                           (nil? ctr)     "x"
+                           (zero? ctr)    "0"
+                           :else          (let [r ctr]
+                                            (cond
+                                              (< r 0.25) "1"
+                                              (< r 0.5)  "2"
+                                              (< r 0.75) "3"
+                                              :else      "4")))
+                 tooltip (when valid?
+                           (if batch
+                             (str day " · " read-n "/" total-n " read"
+                                  (when ctr (str " (" (int (* ctr 100)) "%)")))
+                             (str day " · no batch")))]
+             [:div {:class        "heat-cell"
+                    :data-level  level
+                    :data-tooltip tooltip
+                    :title        tooltip}]))])]]))
+
+(defn- ctr-pill
+  "Renders a styled CTR percentage chip."
+  [{:keys [ctr ctr-read-count ctr-total-count]}]
+  (let [pct (when ctr (int (* ctr 100)))]
+    [:span {:class (str "chip chip-mono "
+                        (cond
+                          (nil? ctr)    "text-stone-400"
+                          (>= ctr 0.75) "text-emerald-700"
+                          (>= ctr 0.5)  "text-amber-700"
+                          (> ctr 0)     "text-orange-700"
+                          :else         "text-stone-400"))}
+     (if (nil? ctr)
+       "—"
+       (str pct "% · " ctr-read-count "/" ctr-total-count))]))
+
+(defn- history-batch-row
+  "Renders one Recommendation batch row in the history list."
+  [{:keys [rec/date rec/collections] :as batch} arts-by-id]
+  (let [lib-count (count (db/rec-batch-article-ids batch))
+        ext-count (count (:rec/external-collections batch))]
+    [:details {:class "card-art p-5 group"}
+     [:summary {:class "flex items-center justify-between gap-3 cursor-pointer list-none"}
+      [:div {:class "flex items-center gap-3"}
+       [:i {:data-lucide "chevron-right"
+            :class "icon-sm text-stone-400 transition-transform group-open:rotate-90"}]
+       [:div
+        [:span {:class "font-medium text-stone-800"} date]
+        [:span {:class "text-xs text-stone-400 ml-2"}
+         (str lib-count " library · " ext-count " discovery")]]]
+      (ctr-pill batch)]
+     [:div {:class "mt-4 pt-4 border-t border-stone-100 space-y-2"}
+      (for [col collections
+            {:keys [item/article-id item/micro-blurb]} (:collection/items col)
+            :let [art (get arts-by-id article-id)]]
+        [:div {:class "flex items-start gap-2"}
+         (if (= :read (:article/status art))
+           [:i {:data-lucide "check-circle-2" :class "icon-sm text-emerald-500 mt-0.5 shrink-0"}]
+           [:i {:data-lucide "circle"         :class "icon-sm text-stone-300 mt-0.5 shrink-0"}])
+         [:div
+          [:a {:href  (str "/article/" article-id)
+               :class "text-[13px] font-medium text-stone-800 hover:underline line-clamp-2"}
+           (or (:article/title art) (str article-id))]
+          (when (seq micro-blurb)
+            [:p {:class "text-xs text-stone-400 italic mt-0.5"} micro-blurb])]])]]))
+
 (defn today-history-page [{:keys [biff/db]}]
-  (ui/page (merge (db/base-page-opts db) {:active :today :title "Today History" :crumbs "Today / History"})
-           [:div {:class "px-4 sm:px-6 lg:px-10 py-6 sm:py-8 max-w-3xl mx-auto w-full"}
-            [:h1 {:class "serif-h1 text-3xl sm:text-4xl mb-2"} "Today History"]]))
+  (let [batches    (db/rec-batches-with-ctr db)
+        all-ids    (->> batches
+                        (mapcat db/rec-batch-article-ids)
+                        distinct)
+        arts-by-id (db/articles-by-ids db all-ids
+                                       '[:xt/id :article/title :article/url :article/status])]
+    (ui/page (merge (db/base-page-opts db)
+                    {:active :today :title "Today History" :crumbs "Today / History"})
+             [:div {:class "px-4 sm:px-6 lg:px-10 py-6 sm:py-8 max-w-3xl mx-auto w-full"}
+              ;; Header
+              [:div {:class "flex items-center justify-between mb-6"}
+               [:div
+                [:h1 {:class "serif-h1 text-3xl sm:text-4xl mb-1"} "Recommendation History"]
+                [:p {:class "text-sm text-stone-400"}
+                 (str (count batches) " batches · CTR = reads within 7 days")]]
+               [:a {:href "/" :class "btn btn-sm btn-ghost text-stone-400 gap-1.5"}
+                [:i {:data-lucide "arrow-left" :class "icon-sm"}]
+                "Today"]]
+              ;; Heatmap
+              (when (seq batches)
+                (ctr-heatmap batches))
+              ;; Summary stats
+              (when (seq batches)
+                (let [batches-with-ctr (filter #(some? (:ctr %)) batches)
+                      avg-ctr          (when (seq batches-with-ctr)
+                                         (/ (reduce + (map :ctr batches-with-ctr))
+                                            (count batches-with-ctr)))]
+                  [:div {:class "flex gap-4 mb-8 flex-wrap"}
+                   [:div {:class "card-art px-4 py-3 flex-1 min-w-[120px]"}
+                    [:p {:class "text-xs text-stone-400 mb-0.5"} "Total batches"]
+                    [:p {:class "text-xl font-semibold"} (count batches)]]
+                   [:div {:class "card-art px-4 py-3 flex-1 min-w-[120px]"}
+                    [:p {:class "text-xs text-stone-400 mb-0.5"} "Avg CTR"]
+                    [:p {:class "text-xl font-semibold font-mono"}
+                     (if avg-ctr (str (int (* avg-ctr 100)) "%") "—")]]
+                   [:div {:class "card-art px-4 py-3 flex-1 min-w-[120px]"}
+                    [:p {:class "text-xs text-stone-400 mb-0.5"} "Total recommended"]
+                    [:p {:class "text-xl font-semibold"}
+                     (->> batches (map :ctr-total-count) (reduce + 0))]]]))
+              ;; Batch list
+              (if (empty? batches)
+                [:p {:class "text-sm text-stone-400 mt-10 text-center"}
+                 "No Recommendation history yet — batches appear here after your first daily generation."]
+                [:div {:class "space-y-3"}
+                 (for [batch batches]
+                   (history-batch-row batch arts-by-id))])])))
 
 (defn rec-fragment [{:keys [biff/db]}]
   (c/html-frag (rec-section-content db)))
