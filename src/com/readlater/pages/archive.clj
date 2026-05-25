@@ -33,18 +33,18 @@
           (for [day week]
             (let [valid? (and day (not (.isBefore day start)) (not (.isAfter day today)))
                   cnt    (if valid? (get dates day 0) -1)
-                  color  (cond
-                           (neg? cnt)   "transparent"
-                           (zero? cnt)  "#EDE7DD"
+                  level  (cond
+                           (neg? cnt)   "x"
+                           (zero? cnt)  "0"
                            :else        (let [r (/ cnt max-ct)]
                                           (cond
-                                            (< r 0.25) "#C9A87C"
-                                            (< r 0.5)  "#B47B53"
-                                            (< r 0.75) "#8B5A3C"
-                                            :else      "#553523")))]
-              [:div {:class "w-3 h-3 rounded-sm"
-                     :style {:background color}
-                     :title (when valid? (str day ": " cnt " article" (when (not= cnt 1) "s")))}]))])]]]))
+                                            (< r 0.25) "1"
+                                            (< r 0.5)  "2"
+                                            (< r 0.75) "3"
+                                            :else      "4")))]
+              [:div {:class      "w-3 h-3 rounded-sm heat-cell"
+                     :data-level level
+                     :title      (when valid? (str day ": " cnt " article" (when (not= cnt 1) "s")))}]))])]]]))
 
 (defn archive-page [{:keys [biff/db]}]
   (let [articles (->> (xt/q db '{:find  [(pull ?e [*])]

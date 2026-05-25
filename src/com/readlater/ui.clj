@@ -163,7 +163,18 @@ html.dark .swipe-bg-delete{background:#2d0a0a;color:#f87171}
 .swipe-conf-del{padding:.375rem .75rem;border-radius:6px;background:#dc2626;color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .swipe-conf-cancel{padding:.375rem .75rem;border-radius:6px;background:#6b7280;color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
 html.dark .swipe-confirm{background:#2d0a0a}
-html.dark .swipe-conf-cancel{background:#404040}")
+html.dark .swipe-conf-cancel{background:#404040}
+.heat-cell[data-level=x]{background:transparent}
+.heat-cell[data-level='0']{background:#EDE7DD}
+.heat-cell[data-level='1']{background:#C9A87C}
+.heat-cell[data-level='2']{background:#B47B53}
+.heat-cell[data-level='3']{background:#8B5A3C}
+.heat-cell[data-level='4']{background:#553523}
+html.dark .heat-cell[data-level='0']{background:#2a2a2a}
+html.dark .heat-cell[data-level='1']{background:#3d2416}
+html.dark .heat-cell[data-level='2']{background:#6b3d20}
+html.dark .heat-cell[data-level='3']{background:#8B5A3C}
+html.dark .heat-cell[data-level='4']{background:#C9A87C}")
 
 (def ^:private theme-init-js
   "var s=localStorage.getItem('theme');if(s==='dark'||(s==null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}")
