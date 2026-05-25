@@ -8,10 +8,10 @@
 (defn- activity-heatmap [db]
   (let [zone    ZoneOffset/UTC
         today   (LocalDate/now zone)
-        start   (.minusDays today 364)
+        start   (.minusDays today 181)
         dates   (->> (xt/q db '{:find [(pull ?e [:article/read-at])]
-                                 :where [[?e :article/status :read]
-                                         [?e :article/read-at _]]})
+                                :where [[?e :article/status :read]
+                                        [?e :article/read-at _]]})
                      (map first)
                      (keep :article/read-at)
                      (map #(.toLocalDate (.atOffset % zone)))
@@ -20,31 +20,31 @@
         max-ct  (apply max 1 (vals dates))
         dow     (.getValue (.getDayOfWeek start))
         g-start (.minusDays start (dec dow))
-        all-days (take 371 (iterate #(.plusDays % 1) g-start))
+        all-days (take 196 (iterate #(.plusDays % 1) g-start))
         weeks   (partition 7 7 nil all-days)]
     [:div {:class "mb-10"}
      [:h2 {:class "text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2"}
       [:i {:data-lucide "activity" :class "icon-sm"}]
-      "Reading activity · last year"]
-     [:div {:class "pb-1"}
-      [:div {:class "heat-grid inline-flex" :style {:gap "3px"}}
-       (for [week weeks]
-         [:div {:class "flex flex-col" :style {:gap "3px"}}
-          (for [day week]
-            (let [valid? (and day (not (.isBefore day start)) (not (.isAfter day today)))
-                  cnt    (if valid? (get dates day 0) -1)
-                  level  (cond
-                           (neg? cnt)   "x"
-                           (zero? cnt)  "0"
-                           :else        (let [r (/ cnt max-ct)]
-                                          (cond
-                                            (< r 0.25) "1"
-                                            (< r 0.5)  "2"
-                                            (< r 0.75) "3"
-                                            :else      "4")))]
-              [:div {:class      "w-3 h-3 rounded-sm heat-cell"
-                     :data-level level
-                     :title      (when valid? (str day ": " cnt " article" (when (not= cnt 1) "s")))}]))])]]]))
+      "Reading activity · last 6 months"]
+     [:div {:class "heat-grid"}
+      (for [week weeks]
+        [:div {:class "heat-week"}
+         (for [day week]
+           (let [valid? (and day (not (.isBefore day start)) (not (.isAfter day today)))
+                 cnt    (if valid? (get dates day 0) -1)
+                 level  (cond
+                          (neg? cnt)   "x"
+                          (zero? cnt)  "0"
+                          :else        (let [r (/ cnt max-ct)]
+                                         (cond
+                                           (< r 0.25) "1"
+                                           (< r 0.5)  "2"
+                                           (< r 0.75) "3"
+                                           :else      "4")))]
+             [:div {:class         "heat-cell"
+                    :data-level   level
+                    :data-tooltip (when valid? (str day " · " cnt " article" (when (not= cnt 1) "s")))
+                    :title        (when valid? (str day " · " cnt " article" (when (not= cnt 1) "s")))}]))])]]))
 
 (defn archive-page [{:keys [biff/db]}]
   (let [articles (->> (xt/q db '{:find  [(pull ?e [*])]
