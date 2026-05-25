@@ -26,8 +26,8 @@
      [:h2 {:class "text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2"}
       [:i {:data-lucide "activity" :class "icon-sm"}]
       "Reading activity · last year"]
-     [:div {:class "overflow-x-auto pb-1"}
-      [:div {:class "inline-flex" :style {:gap "3px"}}
+     [:div {:class "pb-1"}
+      [:div {:class "heat-grid inline-flex" :style {:gap "3px"}}
        (for [week weeks]
          [:div {:class "flex flex-col" :style {:gap "3px"}}
           (for [day week]

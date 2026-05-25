@@ -174,7 +174,8 @@ html.dark .heat-cell[data-level='0']{background:#2a2a2a}
 html.dark .heat-cell[data-level='1']{background:#3d2416}
 html.dark .heat-cell[data-level='2']{background:#6b3d20}
 html.dark .heat-cell[data-level='3']{background:#8B5A3C}
-html.dark .heat-cell[data-level='4']{background:#C9A87C}")
+html.dark .heat-cell[data-level='4']{background:#C9A87C}
+@media(max-width:639px){.heat-grid>div:nth-child(-n+28){display:none}}")
 
 (def ^:private theme-init-js
   "var s=localStorage.getItem('theme');if(s==='dark'||(s==null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}")
