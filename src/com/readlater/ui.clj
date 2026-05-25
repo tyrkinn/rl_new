@@ -164,6 +164,9 @@ html.dark .swipe-bg-delete{background:#2d0a0a;color:#f87171}
 .swipe-conf-cancel{padding:.375rem .75rem;border-radius:6px;background:#6b7280;color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
 html.dark .swipe-confirm{background:#2d0a0a}
 html.dark .swipe-conf-cancel{background:#404040}
+.heat-grid{display:flex;width:100%;gap:3px}
+.heat-week{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.heat-cell{width:100%;aspect-ratio:1;border-radius:3px;min-width:0;position:relative;cursor:default}
 .heat-cell[data-level=x]{background:transparent}
 .heat-cell[data-level='0']{background:#EDE7DD}
 .heat-cell[data-level='1']{background:#C9A87C}
@@ -175,7 +178,14 @@ html.dark .heat-cell[data-level='1']{background:#3d2416}
 html.dark .heat-cell[data-level='2']{background:#6b3d20}
 html.dark .heat-cell[data-level='3']{background:#8B5A3C}
 html.dark .heat-cell[data-level='4']{background:#C9A87C}
-@media(max-width:639px){.heat-grid>div:nth-child(-n+28){display:none}}")
+.heat-cell[data-tooltip]:hover::after{content:attr(data-tooltip);position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);background:#1c1917;color:#f5ede4;padding:4px 9px;border-radius:6px;font-size:11px;font-family:'Inter',sans-serif;white-space:nowrap;z-index:100;pointer-events:none;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.heat-cell[data-tooltip]:hover::before{content:'';position:absolute;bottom:calc(100% + 2px);left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:#1c1917;z-index:100;pointer-events:none}
+html.dark .heat-cell[data-tooltip]:hover::after{background:#f5ede4;color:#1c1917;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+html.dark .heat-cell[data-tooltip]:hover::before{border-top-color:#f5ede4}
+body.focus-mode #sidebar,body.focus-mode .mob-bottom-nav,body.focus-mode header,body.focus-mode #article-aside,body.focus-mode #article-actions,body.focus-mode #article-meta{display:none !important}
+body.focus-mode main{padding-bottom:0}
+body.focus-mode #article-content{max-width:680px;margin:2rem auto;padding:0 1.5rem}
+html.dark body.focus-mode #article-content{background:#141414}")
 
 (def ^:private theme-init-js
   "var s=localStorage.getItem('theme');if(s==='dark'||(s==null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}")

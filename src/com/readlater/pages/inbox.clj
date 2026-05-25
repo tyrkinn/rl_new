@@ -143,7 +143,14 @@
                     article/retry-count article/comments article/folder-id
                     article/kind article/full-summary article/summary-status]} art
             display-title (or title url)
-            folders       (db/all-folders db)]
+            folders       (db/all-folders db)
+            inbox-items   (db/inbox-articles db)
+            entry-ids     (mapv :xt/id inbox-items)
+            cur-pos       (.indexOf entry-ids id)
+            prev-id       (when (> cur-pos 0)
+                            (nth entry-ids (dec cur-pos)))
+            next-id       (when (and (>= cur-pos 0) (< cur-pos (dec (count entry-ids))))
+                            (nth entry-ids (inc cur-pos)))]
         (ui/page (merge (db/base-page-opts db)
                         {:active :inbox
                          :title  (or title "Article")
@@ -164,7 +171,7 @@
                     nil)
                   [:div {:class "flex flex-col xl:flex-row gap-8 xl:items-start"}
                    ;; Left — article content
-                   [:div {:class "flex-1 min-w-0 max-w-2xl mx-auto xl:mx-0 w-full"}
+                   [:div {:id "article-content" :class "flex-1 min-w-0 max-w-2xl mx-auto xl:mx-0 w-full"}
                     [:h1 {:id              "article-title"
                           :class           "serif-h1 text-2xl sm:text-3xl leading-tight cursor-text px-2 -mx-2 rounded-lg hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-accent-200 transition-colors mb-3"
                           :contenteditable "false"
@@ -174,7 +181,7 @@
                           :onkeydown       "if(event.key==='Enter'){event.preventDefault();this.blur()} if(event.key==='Escape'){this.innerText=this.dataset.original;this.blur()}"
                           :onblur          "(function(el){el.contentEditable='false';var t=el.innerText.trim();if(!t||t===el.dataset.original)return;fetch(el.dataset.patchUrl,{method:'PATCH',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'title='+encodeURIComponent(t)}).then(function(r){if(r.ok){el.dataset.original=t;showSavedToast()}else el.innerText=el.dataset.original}).catch(function(){el.innerText=el.dataset.original})})(this)"}
                      display-title]
-                    [:div {:class "flex items-center gap-1 mb-3 flex-wrap"}
+                    [:div {:id "article-actions" :class "flex items-center gap-1 mb-3 flex-wrap"}
                      [:a {:href url :target "_blank" :rel "noopener noreferrer" :class "btn btn-sm btn-ghost gap-1.5"}
                       [:i {:data-lucide "external-link" :class "icon-sm"}]
                       [:span {:class "hidden sm:inline"} "Open"]]
@@ -189,23 +196,36 @@
                          [:button {:hx-post              (str "/api/articles/" id "/unread")
                                    :hx-swap              "none"
                                    :hx-on--after-request "window.location.reload()"
-                                   :class                "btn btn-sm btn-ghost gap-1.5 text-stone-500"}
+                                   :class                "btn btn-sm btn-ghost gap-1.5 text-stone-500"
+                                   :data-shortcut        "mark-read"}
                           [:i {:data-lucide "rotate-ccw" :class "icon-sm"}]
                           [:span {:class "hidden sm:inline"} "Move to unread"]]
                          [:button {:hx-post              (str "/api/articles/" id "/read")
                                    :hx-swap              "none"
                                    :hx-on--after-request "window.location='/inbox'"
-                                   :class                "btn btn-sm btn-ghost gap-1.5 text-emerald-700"}
+                                   :class                "btn btn-sm btn-ghost gap-1.5 text-emerald-700"
+                                   :data-shortcut        "mark-read"}
                           [:i {:data-lucide "check" :class "icon-sm"}]
                           [:span {:class "hidden sm:inline"} "Mark read"]]))
                      [:button {:hx-delete            (str "/api/articles/" id)
-                               :hx-confirm           "Delete this article?"
                                :hx-swap              "none"
                                :hx-on--after-request "window.location='/inbox'"
-                               :class                "btn btn-sm btn-ghost text-red-500"}
+                               :class                "btn btn-sm btn-ghost text-red-500"
+                               :data-shortcut        "delete"}
                       [:i {:data-lucide "trash-2" :class "icon-sm"}]
-                      [:span {:class "hidden sm:inline"} "Delete"]]]
-                    [:div {:class "flex items-center gap-2 text-sm text-stone-500 mb-6 flex-wrap"}
+                      [:span {:class "hidden sm:inline"} "Delete"]]
+                     [:button {:id      "focus-toggle"
+                               :class   "btn btn-sm btn-ghost gap-1.5"
+                               :title   "Focus mode (f)"
+                               :onclick "toggleFocusMode()"}
+                      [:i {:data-lucide "focus" :class "icon-sm"}]
+                      [:span {:class "hidden sm:inline"} "Focus"]]
+                     [:button {:class   "btn btn-sm btn-ghost gap-1.5"
+                               :title   "Keyboard shortcuts (?)"
+                               :onclick "document.getElementById('shortcuts-help').showModal()"}
+                      [:i {:data-lucide "keyboard" :class "icon-sm"}]
+                      [:span {:class "hidden sm:inline"} "Shortcuts"]]]
+                    [:div {:id "article-meta" :class "flex items-center gap-2 text-sm text-stone-500 mb-6 flex-wrap"}
                      (kind-badge-section id kind)
                      (when byline [:span byline])
                      (when published-at [:span (str (.toString published-at))])
@@ -234,7 +254,7 @@
                        (when topic [:span {:class "chip font-medium"} topic])
                        (for [t tags] [:span {:class "chip"} t])])]
                    ;; Right — Notes + Folder
-                   [:aside {:class "xl:w-72 xl:shrink-0 xl:sticky xl:top-20 flex flex-col border-t xl:border-t-0 border-stone-200 pt-6 xl:pt-0"}
+                   [:aside {:id "article-aside" :class "xl:w-72 xl:shrink-0 xl:sticky xl:top-20 flex flex-col border-t xl:border-t-0 border-stone-200 pt-6 xl:pt-0"}
                     [:p {:class "text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3"} "Notes"]
                     [:div {:id    "comments-list"
                            :class "flex flex-col gap-3 mb-4 overflow-y-auto max-h-64 xl:max-h-[58vh] pr-0.5"}
@@ -250,8 +270,81 @@
                                  :onkeydown   "if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.form.requestSubmit()}"}]
                      [:p {:class "text-xs text-stone-400 mt-1.5 select-none"} "↵ send  ·  ⇧↵ newline"]]
                     (folder-chips id folder-id folders)]]
+                  [:span {:id            "entry-nav"
+                          :data-prev-url (when prev-id (str "/article/" prev-id))
+                          :data-next-url (when next-id (str "/article/" next-id))
+                          :style         "display:none"
+                          :aria-hidden   "true"}]
+                  [:dialog {:id "shortcuts-help" :class "modal"}
+                   [:div {:class "modal-box max-w-sm rounded-xl bg-white border border-stone-200"}
+                    [:h3 {:class "font-serif text-xl mb-4"} "Keyboard shortcuts"]
+                    [:table {:class "w-full text-sm"}
+                     [:tbody
+                      (for [[k label] [["r" "Mark as read / unread"]
+                                       ["n" "Next entry"]
+                                       ["p" "Previous entry"]
+                                       ["d" "Delete"]
+                                       ["s" "Add a note (Comment)"]
+                                       ["f" "Toggle focus mode"]
+                                       ["?" "Show this help"]
+                                       ["Esc" "Exit focus mode / close"]]]
+                        [:tr {:class "border-b border-stone-100 last:border-0"}
+                         [:td {:class "py-2 pr-4 w-12"}
+                          [:kbd {:class "px-2 py-0.5 rounded text-xs font-mono bg-stone-100 border border-stone-200 text-stone-700"} k]]
+                         [:td {:class "py-2 text-stone-600"} label]])]]
+                    [:div {:class "flex justify-end mt-4"}
+                     [:button {:class   "btn btn-ghost btn-sm"
+                               :onclick "document.getElementById('shortcuts-help').close()"}
+                      "Close"]]]
+                   [:form {:method "dialog" :class "modal-backdrop"}
+                    [:button "close"]]]
                   [:script
-                   "(function(){var h1=document.getElementById('article-title');if(!h1)return;h1.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();h1.blur();}if(e.key==='Escape'){h1.innerText=h1.dataset.original;h1.blur();}});})();"]])))))
+                   "(function(){
+  function isEditing(){
+    var tag=document.activeElement&&document.activeElement.tagName;
+    var ce=document.activeElement&&document.activeElement.isContentEditable;
+    return tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||ce;
+  }
+  function nav(){return document.getElementById('entry-nav');}
+  var FOCUS_KEY='rl:focus-mode';
+  function setFocusMode(on){
+    document.body.classList.toggle('focus-mode',on);
+    localStorage.setItem(FOCUS_KEY,on?'1':'0');
+    var btn=document.getElementById('focus-toggle');
+    if(!btn)return;
+    var icon=btn.querySelector('[data-lucide]');
+    if(icon){icon.setAttribute('data-lucide',on?'minimize-2':'focus');lucide.createIcons({nodes:[icon]});}
+  }
+  window.toggleFocusMode=function(){setFocusMode(!document.body.classList.contains('focus-mode'));};
+  if(localStorage.getItem(FOCUS_KEY)==='1')setFocusMode(true);
+  window.toggleShortcutsHelp=function(){
+    var d=document.getElementById('shortcuts-help');
+    if(!d)return;
+    d.open?d.close():d.showModal();
+  };
+  document.addEventListener('keydown',function(e){
+    if(e.metaKey||e.ctrlKey||e.altKey)return;
+    if(e.key==='Escape'){
+      if(document.body.classList.contains('focus-mode')){setFocusMode(false);e.stopPropagation();}
+      return;
+    }
+    if(isEditing())return;
+    if(e.key==='?'){e.preventDefault();toggleShortcutsHelp();return;}
+    if(e.key==='f'){e.preventDefault();toggleFocusMode();return;}
+    if(e.key==='r'){e.preventDefault();var b=document.querySelector('[data-shortcut=\"mark-read\"]');if(b)b.click();return;}
+    if(e.key==='d'){e.preventDefault();var b=document.querySelector('[data-shortcut=\"delete\"]');if(b){if(!confirm('Delete this entry?'))return;htmx.trigger(b,'click');}return;}
+    if(e.key==='s'){e.preventDefault();var ta=document.querySelector('#article-aside textarea');if(ta)ta.focus();return;}
+    if(e.key==='n'){e.preventDefault();var n=nav();if(n&&n.dataset.nextUrl)window.location=n.dataset.nextUrl;return;}
+    if(e.key==='p'){e.preventDefault();var n=nav();if(n&&n.dataset.prevUrl)window.location=n.dataset.prevUrl;return;}
+  });
+  var h1=document.getElementById('article-title');
+  if(h1){
+    h1.addEventListener('keydown',function(e){
+      if(e.key==='Enter'){e.preventDefault();h1.blur();}
+      if(e.key==='Escape'){h1.innerText=h1.dataset.original;h1.blur();}
+    });
+  }
+})();"]]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; API handlers

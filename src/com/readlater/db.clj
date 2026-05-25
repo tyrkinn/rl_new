@@ -1,6 +1,7 @@
 (ns com.readlater.db
   (:require [xtdb.api :as xt])
-  (:import [java.time Instant]))
+  (:import [java.time Instant LocalDate]
+           [java.time.temporal ChronoUnit]))
 
 (defn now [] (Instant/now))
 
@@ -30,6 +31,18 @@
 
 (defn count-inbox [db]
   (count (inbox-articles db)))
+
+(defn quick-reads
+  "Returns inbox Readables with reading-time-min at or below max-min (default 5)."
+  ([db] (quick-reads db 5))
+  ([db max-min]
+   (->> (inbox-articles db)
+        (filter #(when-let [t (:article/reading-time-min %)]
+                   (<= t max-min))))))
+
+(defn count-quick-reads
+  ([db] (count (quick-reads db)))
+  ([db max-min] (count (quick-reads db max-min))))
 
 (defn count-queue [db]
   (->> (xt/q db '{:find  [(pull ?e [:article/status :article/deleted-at])]
@@ -67,6 +80,36 @@
        (map first)
        (sort-by :notif/created-at #(compare %2 %1))
        (take 50)))
+
+(defn archive-surprise-candidates
+  "Returns Readables eligible for Surprise Me: status=:read, quality-score >= min-quality,
+   not read within recency-days. Falls back progressively if no results."
+  ([db] (archive-surprise-candidates db {:min-quality 7 :recency-days 7}))
+  ([db {:keys [min-quality recency-days]}]
+   (let [cutoff (.minus (Instant/now) recency-days ChronoUnit/DAYS)]
+     (->> (xt/q db '{:find  [(pull ?e [*])]
+                     :in    [min-q]
+                     :where [[?e :article/status :read]
+                             [?e :article/quality-score ?q]
+                             [(>= ?q min-q)]]}
+                min-quality)
+          (map first)
+          (remove :article/deleted-at)
+          (remove #(when-let [t (:article/read-at %)]
+                     (.isAfter t cutoff)))))))
+
+(defn random-surprise
+  "Returns a random high-quality archived Readable, with progressive quality fallback."
+  [db]
+  (or (let [cs (archive-surprise-candidates db {:min-quality 7 :recency-days 7})]
+        (when (seq cs) (rand-nth cs)))
+      (let [cs (archive-surprise-candidates db {:min-quality 5 :recency-days 7})]
+        (when (seq cs) (rand-nth cs)))
+      (let [cs (->> (xt/q db '{:find  [(pull ?e [*])]
+                               :where [[?e :article/status :read]]})
+                    (map first)
+                    (remove :article/deleted-at))]
+        (when (seq cs) (rand-nth cs)))))
 
 (defn app-settings [db]
   (ffirst (xt/q db '{:find [(pull ?e [*])] :where [[?e :xt/id :settings/global]]})))
