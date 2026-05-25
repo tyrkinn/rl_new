@@ -118,12 +118,8 @@
       [:span {:class "ml-1 text-xs font-mono text-stone-300"} "0"]])])
 
 (defn- surprise-empty-state []
-  [:div {:id          "surprise-result"
-         :hx-get      "/api/articles/random"
-         :hx-trigger  "load delay:4000ms"
-         :hx-target   "#surprise-result"
-         :hx-swap     "outerHTML"
-         :class       "flex items-center gap-2 text-sm text-stone-400"}
+  [:div {:id    "surprise-result"
+         :class "flex items-center gap-2 text-sm text-stone-400"}
    [:i {:data-lucide "frown" :class "icon-sm"}]
    "No archived articles found. Read some first!"])
 
@@ -194,7 +190,7 @@
                (rec-section-content db)]
               (surprise-me-row)
               (when (seq fresh-all)
-                (fresh-inbox-section fresh-all inbox-n quick-reads? qr-count max-min))]))))
+                (fresh-inbox-section fresh-all inbox-n quick-reads? qr-count max-min))])))
 
 (defn today-history-page [{:keys [biff/db]}]
   (ui/page (merge (db/base-page-opts db) {:active :today :title "Today History" :crumbs "Today / History"})

@@ -208,6 +208,7 @@
                           [:i {:data-lucide "check" :class "icon-sm"}]
                           [:span {:class "hidden sm:inline"} "Mark read"]]))
                      [:button {:hx-delete            (str "/api/articles/" id)
+                               :hx-confirm           "Delete this entry?"
                                :hx-swap              "none"
                                :hx-on--after-request "window.location='/inbox'"
                                :class                "btn btn-sm btn-ghost text-red-500"
@@ -332,7 +333,7 @@
     if(e.key==='?'){e.preventDefault();toggleShortcutsHelp();return;}
     if(e.key==='f'){e.preventDefault();toggleFocusMode();return;}
     if(e.key==='r'){e.preventDefault();var b=document.querySelector('[data-shortcut=\"mark-read\"]');if(b)b.click();return;}
-    if(e.key==='d'){e.preventDefault();var b=document.querySelector('[data-shortcut=\"delete\"]');if(b){if(!confirm('Delete this entry?'))return;htmx.trigger(b,'click');}return;}
+    if(e.key==='d'){e.preventDefault();var b=document.querySelector('[data-shortcut=\"delete\"]');if(b)b.click();return;}
     if(e.key==='s'){e.preventDefault();var ta=document.querySelector('#article-aside textarea');if(ta)ta.focus();return;}
     if(e.key==='n'){e.preventDefault();var n=nav();if(n&&n.dataset.nextUrl)window.location=n.dataset.nextUrl;return;}
     if(e.key==='p'){e.preventDefault();var n=nav();if(n&&n.dataset.prevUrl)window.location=n.dataset.prevUrl;return;}
@@ -344,7 +345,7 @@
       if(e.key==='Escape'){h1.innerText=h1.dataset.original;h1.blur();}
     });
   }
-})();"]]))))))
+})();"]])))))
 
 ;; ---------------------------------------------------------------------------
 ;; API handlers
