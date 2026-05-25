@@ -3,6 +3,7 @@
             [com.readlater.components :as c]
             [com.readlater.ui :as ui]
             [com.readlater.worker :as worker]
+            [rum.core :as rum]
             [xtdb.api :as xt]))
 
 (defn- today-date-str []
@@ -92,11 +93,76 @@
      [:p {:class "text-sm text-stone-400"}
       "Добавь хотя бы 3 статьи в Inbox — Claude составит персональную подборку."]])))
 
-(defn today-page [{:keys [biff/db] :as ctx}]
+(defn- parse-today-filters [query-params]
+  (let [quick? (= "true" (get query-params "quick-reads"))
+        max-min (or (some-> (get query-params "max-min") parse-long) 5)]
+    {:quick-reads? quick?
+     :max-min      max-min}))
+
+(defn- quick-reads-chip [quick? qr-count max-min]
+  [:div {:id "inbox-filter-bar" :class "flex flex-wrap gap-2 mb-4"}
+   (if (pos? qr-count)
+     [:a {:href  (if quick? "/" (str "/?quick-reads=true" (when (not= max-min 5) (str "&max-min=" max-min))))
+          :hx-push-url "true"
+          :class (str "chip chip-sm cursor-pointer transition-colors "
+                      (if quick?
+                        "bg-stone-800 text-white border-stone-800"
+                        "chip-outline text-stone-500 hover:border-stone-400"))}
+      [:i {:data-lucide "zap" :class "icon-sm"}]
+      "Quick Reads"
+      (when-not quick?
+        [:span {:class "ml-1 text-xs font-mono text-stone-400"} (str qr-count)])]
+     [:span {:class "chip chip-sm cursor-not-allowed text-stone-300 border-stone-200"}
+      [:i {:data-lucide "zap" :class "icon-sm"}]
+      "Quick Reads"
+      [:span {:class "ml-1 text-xs font-mono text-stone-300"} "0"]])])
+
+(defn- surprise-empty-state []
+  [:div {:id    "surprise-result"
+         :class "flex items-center gap-2 text-sm text-stone-400"}
+   [:i {:data-lucide "frown" :class "icon-sm"}]
+   "No archived articles found. Read some first!"])
+
+(defn- surprise-me-row []
+  [:div {:class "px-4 sm:px-6 lg:px-10 mb-6"}
+   [:div {:id "surprise-result"}
+    [:button {:class      "btn btn-sm btn-outline gap-2 text-stone-600 border-stone-300 hover:bg-stone-50"
+              :hx-get     "/api/articles/random"
+              :hx-target  "#surprise-result"
+              :hx-swap    "outerHTML"}
+     [:i {:data-lucide "shuffle" :class "icon-sm"}]
+     "Surprise Me"]]])
+
+(defn- fresh-inbox-section [fresh inbox-n quick? qr-count max-min]
+  (let [display-fresh (if quick?
+                        (filter #(when-let [t (:article/reading-time-min %)]
+                                   (<= t max-min))
+                                fresh)
+                        (take 10 fresh))]
+    [:<>
+     [:div {:class "border-t border-stone-200 mb-8"}]
+     [:section {:class "px-4 sm:px-6 lg:px-10"}
+      [:h2 {:class "text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2"}
+       [:i {:data-lucide "inbox" :class "icon-sm"}]
+       "Fresh in Inbox"]
+      (quick-reads-chip quick? qr-count max-min)
+      (when quick?
+        [:p {:class "text-xs text-stone-400 mb-3"}
+         (str "Showing " (count display-fresh) " quick read" (when (not= 1 (count display-fresh)) "s") " (≤ " max-min " min)")])
+      [:div (map c/week-row display-fresh)]
+      (when (and (not quick?) (> inbox-n 10))
+        [:a {:href  "/inbox"
+             :class "mt-4 inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-700"}
+         (str "View all " inbox-n " articles")
+         [:i {:data-lucide "arrow-right" :class "icon-sm"}]])]]))
+
+(defn today-page [{:keys [biff/db query-params] :as ctx}]
   (worker/start-generation-if-needed! ctx)
-  (let [fresh   (take 10 (db/inbox-articles db))
-        batch   (worker/today-batch db)
-        inbox-n (db/count-inbox db)]
+  (let [{:keys [quick-reads? max-min]} (parse-today-filters (or query-params {}))
+        fresh-all (db/inbox-articles db)
+        qr-count  (db/count-quick-reads db max-min)
+        batch     (worker/today-batch db)
+        inbox-n   (db/count-inbox db)]
     (ui/page (merge (db/base-page-opts db) {:active :today :title "Today" :crumbs "Today"})
              [:div {:class "py-6 sm:py-8"}
               [:div {:class "px-4 sm:px-6 lg:px-10 mb-8 flex items-start justify-between gap-3"}
@@ -122,19 +188,9 @@
                 [:i {:data-lucide "sparkles" :class "icon-sm"}]
                 "Recommended Today"]
                (rec-section-content db)]
-              (when (seq fresh)
-                [:<>
-                 [:div {:class "border-t border-stone-200 mb-8"}]
-                 [:section {:class "px-4 sm:px-6 lg:px-10"}
-                  [:h2 {:class "text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3 flex items-center gap-2"}
-                   [:i {:data-lucide "inbox" :class "icon-sm"}]
-                   "Fresh in Inbox"]
-                  [:div (map c/week-row fresh)]
-                  (when (> inbox-n 10)
-                    [:a {:href  "/inbox"
-                         :class "mt-4 inline-flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-700"}
-                     (str "View all " inbox-n " articles")
-                     [:i {:data-lucide "arrow-right" :class "icon-sm"}]])]])])))
+              (surprise-me-row)
+              (when (seq fresh-all)
+                (fresh-inbox-section fresh-all inbox-n quick-reads? qr-count max-min))])))
 
 (defn today-history-page [{:keys [biff/db]}]
   (ui/page (merge (db/base-page-opts db) {:active :today :title "Today History" :crumbs "Today / History"})
@@ -144,9 +200,18 @@
 (defn rec-fragment [{:keys [biff/db]}]
   (c/html-frag (rec-section-content db)))
 
+(defn surprise-me-handler [{:keys [biff/db]}]
+  (if-let [art (db/random-surprise db)]
+    {:status  200
+     :headers {"HX-Redirect" (str "/article/" (:xt/id art))}}
+    {:status  200
+     :headers {"Content-Type" "text/html; charset=UTF-8"}
+     :body    (rum/render-static-markup (surprise-empty-state))}))
+
 (def routes
   [["/"              {:get #'today-page}]
    ["/today/history" {:get #'today-history-page}]])
 
 (def api-routes
-  [["/api/recommendations/fragment" {:get #'rec-fragment}]])
+  [["/api/recommendations/fragment" {:get #'rec-fragment}]
+   ["/api/articles/random"          {:get #'surprise-me-handler}]])
