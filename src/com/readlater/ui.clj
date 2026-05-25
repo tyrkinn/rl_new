@@ -158,7 +158,12 @@ html.dark .mob-bottom-nav{background:rgba(20,20,20,.92);border-top-color:#252525
 html.dark .mob-bn-item{color:#C9C2B4}
 html.dark .mob-bn-item.active{color:#E6C9A8}
 html.dark .swipe-bg-read{background:#052e16;color:#4ade80}
-html.dark .swipe-bg-delete{background:#2d0a0a;color:#f87171}")
+html.dark .swipe-bg-delete{background:#2d0a0a;color:#f87171}
+.swipe-confirm{position:absolute;right:0;top:0;bottom:0;display:flex;align-items:center;gap:.375rem;padding:0 .625rem;background:#fee2e2;z-index:10}
+.swipe-conf-del{padding:.375rem .75rem;border-radius:6px;background:#dc2626;color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.swipe-conf-cancel{padding:.375rem .75rem;border-radius:6px;background:#6b7280;color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
+html.dark .swipe-confirm{background:#2d0a0a}
+html.dark .swipe-conf-cancel{background:#404040}")
 
 (def ^:private theme-init-js
   "var s=localStorage.getItem('theme');if(s==='dark'||(s==null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}")
@@ -554,12 +559,50 @@ document.addEventListener('htmx:afterSettle',window._afterSettleH);
   });
 })();
 (function(){
+function articleTitle(inner){
+  var a=inner.querySelector('a');
+  var t=a?a.textContent.trim():'';
+  return t.length>50?t.slice(0,50)+'…':t;
+}
+function dismissRow(el){
+  el.style.transition='opacity .2s';el.style.opacity='0';
+  setTimeout(function(){el.remove();},220);
+}
+function showSwipeConfirm(el,inner){
+  var existing=el.querySelector('.swipe-confirm');
+  if(existing)return;
+  var title=articleTitle(inner);
+  var conf=document.createElement('div');
+  conf.className='swipe-confirm';
+  var btnDel=document.createElement('button');btnDel.className='swipe-conf-del';btnDel.textContent='Delete';
+  var btnCan=document.createElement('button');btnCan.className='swipe-conf-cancel';btnCan.textContent='Cancel';
+  conf.appendChild(btnDel);conf.appendChild(btnCan);
+  el.appendChild(conf);
+  conf.querySelector('.swipe-conf-del').addEventListener('click',function(){
+    var d=el.dataset.deleteUrl;
+    if(!d)return;
+    inner.style.transition='transform .2s ease';
+    inner.style.transform='translateX(-110%)';
+    setTimeout(function(){
+      fetch(d,{method:'DELETE'}).then(function(){
+        showToast({type:'success',title:'Deleted',body:title});
+        dismissRow(el);
+      });
+    },80);
+  });
+  conf.querySelector('.swipe-conf-cancel').addEventListener('click',function(){
+    inner.style.transition='transform .22s ease';
+    inner.style.transform='translateX(0)';
+    conf.remove();
+  });
+}
 function initSwipe(el){
   var inner=el.querySelector('.swipe-inner');
   if(!inner)return;
   var startX=0,curX=0,active=false,threshold=72;
   el.addEventListener('touchstart',function(e){
     if(e.touches.length>1)return;
+    if(el.querySelector('.swipe-confirm'))return;
     startX=e.touches[0].clientX;curX=0;active=true;
     inner.style.transition='none';
   },{passive:true});
@@ -574,17 +617,16 @@ function initSwipe(el){
     if(curX>threshold){
       inner.style.transform='translateX(110%)';
       var u=el.dataset.readUrl;
-      if(u)setTimeout(function(){fetch(u,{method:'POST'}).then(function(){
-        el.style.transition='opacity .2s,height .2s';el.style.opacity='0';
-        setTimeout(function(){el.remove();},220);
-      });},80);
+      var title=articleTitle(inner);
+      if(u)setTimeout(function(){
+        fetch(u,{method:'POST'}).then(function(){
+          showToast({type:'success',title:'Marked as read',body:title});
+          dismissRow(el);
+        });
+      },80);
     } else if(curX<-threshold){
-      inner.style.transform='translateX(-110%)';
-      var d=el.dataset.deleteUrl;
-      if(d)setTimeout(function(){fetch(d,{method:'DELETE'}).then(function(){
-        el.style.transition='opacity .2s,height .2s';el.style.opacity='0';
-        setTimeout(function(){el.remove();},220);
-      });},80);
+      inner.style.transform='translateX(-72px)';
+      showSwipeConfirm(el,inner);
     } else {
       inner.style.transform='translateX(0)';
     }
